@@ -1,0 +1,48 @@
+{
+  "version": "7",
+  "dialect": "sqlite",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "6",
+      "when": 1787194136876,
+      "tag": "0000_volatile_bedlam",
+      "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "6",
+      "when": 1787194934910,
+      "tag": "0001_useful_daimon_hellstrom",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1787196733600,
+      "tag": "0002_bizarre_sally_floyd",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "6",
+      "when": 1787197880551,
+      "tag": "0003_cold_hawkeye",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "6",
+      "when": 1787198623145,
+      "tag": "0004_shocking_hellion",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "6",
+      "when": 1787200168429,
+      "tag": "0005_dizzy_quasimodo",
+      "breakpoints": true
+    }
+  ]
+}
