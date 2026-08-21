@@ -1,12 +1,20 @@
 import vinext from "vinext";
 import { defineConfig } from "vite";
-import hostingConfig from "./.openai/hosting.json";
 import { sites } from "./build/sites-vite-plugin";
+import { existsSync } from "node:fs";
+import { resolve } from "node:path";
 
 const SITE_CREATOR_PLACEHOLDER_DATABASE_ID =
   "00000000-0000-4000-8000-000000000000";
 
-const { d1, r2 } = hostingConfig;
+// Try to load ChatGPT Sites config if it exists, otherwise use Cloudflare defaults
+let hostingConfig: { d1?: string; r2?: string; project_id?: string } = {};
+const hostingConfigPath = resolve(process.cwd(), ".openai/hosting.json");
+if (existsSync(hostingConfigPath)) {
+  hostingConfig = await import("./.openai/hosting.json", { with: { type: "json" } }).then(m => m.default);
+}
+
+const { d1 = "DB", r2 = "BUCKET" } = hostingConfig;
 
 // macOS Seatbelt blocks FSEvents, so Codex previews need polling for HMR.
 const isCodexSeatbeltSandbox = process.env.CODEX_SANDBOX === "seatbelt";
@@ -53,7 +61,8 @@ export default defineConfig(async () => {
     },
     plugins: [
       vinext(),
-      sites(),
+      // Only use Sites plugin if hosting.json exists (ChatGPT Sites environment)
+      ...(existsSync(hostingConfigPath) ? [sites()] : []),
       cloudflare({
         viteEnvironment: { name: "rsc", childEnvironments: ["ssr"] },
         inspectorPort: false,
