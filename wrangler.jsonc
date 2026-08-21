@@ -1,0 +1,80 @@
+{
+  "$schema": "https://raw.githubusercontent.com/cloudflare/workers-sdk/main/packages/wrangler/config-schema.json",
+  "name": "rpg-nexus-live",
+  "main": "dist/index.js",
+  "compatibility_date": "2024-09-23",
+  "compatibility_flags": ["nodejs_compat_v2"],
+
+  // D1 Database binding
+  // After creating the database in Cloudflare Dashboard, update database_id
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "rpg-nexus-db",
+      "database_id": "00000000-0000-0000-0000-000000000000",
+      "migrations_dir": "./drizzle"
+    }
+  ],
+
+  // R2 Bucket binding
+  // After creating the bucket in Cloudflare Dashboard, update bucket_name if needed
+  "r2_buckets": [
+    {
+      "binding": "BUCKET",
+      "bucket_name": "rpg-nexus-files"
+    }
+  ],
+
+  // Image Resizing for /_vinext/image endpoint
+  // Enable "Image Resizing" add-on in Cloudflare Dashboard
+  // No explicit binding needed - accessed via fetch to same domain
+
+  // Assets binding for static files
+  "assets": {
+    "directory": "./dist/client",
+    "binding": "ASSETS"
+  },
+
+  // Build configuration
+  "build": {
+    "command": "npm run build"
+  },
+
+  // Local development
+  "dev": {
+    "port": 8787,
+    "inspector_port": 9229
+  },
+
+  // Deployment configuration
+  "limits": {
+    "cpu_ms": 50000
+  },
+
+  // Environment-specific overrides
+  "env": {
+    "preview": {
+      "name": "rpg-nexus-live-preview",
+      "d1_databases": [
+        {
+          "binding": "DB",
+          "database_name": "rpg-nexus-db-preview",
+          "database_id": "00000000-0000-0000-0000-000000000000"
+        }
+      ],
+      "r2_buckets": [
+        {
+          "binding": "BUCKET",
+          "bucket_name": "rpg-nexus-files-preview"
+        }
+      ]
+    },
+    "production": {
+      "name": "rpg-nexus-live",
+      "routes": [
+        // Add your custom domain here after DNS setup
+        // { "pattern": "rpg-nexus.example.com", "custom_domain": true }
+      ]
+    }
+  }
+}
