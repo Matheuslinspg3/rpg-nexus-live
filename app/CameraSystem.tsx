@@ -491,7 +491,7 @@ export function ShieldCameras() {
   const { participants, localStream, cameraBusy, cameraError, enableCamera, disableCamera } = useCamera();
   return (
     <div className="shield-camera-content">
-      <div className="shield-camera-actions"><span>{participants.filter((participant) => participant.stream).length} câmeras ao vivo</span>{localStream ? <button onClick={() => void disableCamera()}>Desligar a minha</button> : <button disabled={cameraBusy} onClick={() => void enableCamera()}>{cameraBusy ? "Abrindo..." : "Ligar minha câmera"}</button>}</div>
+      <div className="shield-camera-actions"><span>{participants.filter((participant) => participant.cameraEnabled && participant.stream).length} câmeras ao vivo</span>{localStream ? <button onClick={() => void disableCamera()}>Desligar a minha</button> : <button disabled={cameraBusy} onClick={() => void enableCamera()}>{cameraBusy ? "Abrindo..." : "Ligar minha câmera"}</button>}</div>
       {cameraError && <p className="shield-camera-error">{cameraError}</p>}
       <div className="shield-camera-grid">{participants.slice(0, 6).map((participant) => <VideoTile key={participant.userId} participant={participant} compact />)}</div>
     </div>
