@@ -1135,8 +1135,12 @@ function ShadowmancerSheet({ fallbackName, layout, fields, onChange, onFocus, ed
             {editingMap.get("classFeatures") && <i className="editing-tag" style={{ background: editingMap.get("classFeatures")?.color }}>{editingMap.get("classFeatures")?.displayName}</i>}
           </section>
           <div className="shadow-resources">
-            <div className="shadow-resource-card"><span className="shadow-drop" aria-hidden="true">◆</span><SheetField id="classResource1Current" label="Pilfered Power" value={fields.classResource1Current} onChange={onChange} onFocus={onFocus} editor={editingMap.get("classResource1Current")} compact /><small>Máx. {fields.classResource1Max || "DEX"}</small></div>
-            <div className="shadow-resource-max"><SheetField id="classResource1Max" label="Máximo" value={fields.classResource1Max} onChange={onChange} onFocus={onFocus} editor={editingMap.get("classResource1Max")} compact /></div>
+            <div className="shadow-resource-card">
+              <span className="shadow-drop" aria-hidden="true">◆</span>
+              <SheetField id="classResource1Current" label="Pilfered Power (Atual)" value={fields.classResource1Current} onChange={onChange} onFocus={onFocus} editor={editingMap.get("classResource1Current")} compact />
+              <small>/</small>
+              <SheetField id="classResource1Max" label="Máximo" value={fields.classResource1Max} onChange={onChange} onFocus={onFocus} editor={editingMap.get("classResource1Max")} compact />
+            </div>
             <div className="shadow-spell-tier"><span>Spell Tier</span><SheetField id="spellTier" label="Tier" value={fields.spellTier} onChange={onChange} onFocus={onFocus} editor={editingMap.get("spellTier")} compact /></div>
           </div>
         </div>
