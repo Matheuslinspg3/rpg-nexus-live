@@ -843,30 +843,9 @@ export default function RpgNexusApp({ initialUser }: { initialUser: User | null 
             <div className={`character-sheet nimble-layout-${activeLayout.id.toLowerCase().replace("_", "-")}`} onPointerDown={() => setSidebarOpen(false)}>
             {activeLayout.id === "SHADOWMANCER" ? (
               <ShadowmancerSheet fallbackName={selectedCharacter.name} layout={activeLayout} fields={fields} onChange={updateField} onFocus={focusField} editingMap={editingMap} />
-            ) : <>
-              <div className="sheet-rule"><span>NIMBLE · {activeLayout.name.toUpperCase()}</span></div>
-              <NimbleClassPanel layout={activeLayout} fields={fields} onChange={updateField} onFocus={focusField} editingMap={editingMap} />
-              <div className="identity-grid">
-                <SheetField id="characterName" label="Nome do personagem" value={fields.characterName} onChange={updateField} onFocus={focusField} editor={editingMap.get("characterName")} />
-                <SheetField id="ancestryClassLevel" label="Ancestralidade, classe e nível" value={fields.ancestryClassLevel} onChange={updateField} onFocus={focusField} editor={editingMap.get("ancestryClassLevel")} />
-                <SheetField id="heightWeightSpeed" label="Altura, peso e deslocamento" value={fields.heightWeightSpeed} onChange={updateField} onFocus={focusField} editor={editingMap.get("heightWeightSpeed")} />
-                <SheetField id="hitDice" label="Dado de vida" value={fields.hitDice} onChange={updateField} onFocus={focusField} editor={editingMap.get("hitDice")} />
-              </div>
-              <div className="combat-row">
-                <div className="stats-grid">{stats.map(([id, label]) => <SheetField key={id} id={id} label={label} value={fields[id]} onChange={updateField} onFocus={focusField} editor={editingMap.get(id)} compact />)}</div>
-                <div className="hp-block"><span className="hp-heart" aria-hidden="true">♥</span><label>HIT POINTS</label><div><SheetField id="hpCurrent" label="Atual" value={fields.hpCurrent} onChange={updateField} onFocus={focusField} editor={editingMap.get("hpCurrent")} compact /><b>/</b><SheetField id="hpMax" label="Máx" value={fields.hpMax} onChange={updateField} onFocus={focusField} editor={editingMap.get("hpMax")} compact /></div><SheetField id="tempHp" label="HP temporário" value={fields.tempHp} onChange={updateField} onFocus={focusField} editor={editingMap.get("tempHp")} compact /></div>
-                <SheetField id="armor" label="Armadura" value={fields.armor} onChange={updateField} onFocus={focusField} editor={editingMap.get("armor")} compact />
-                <SheetField id="initiative" label="Iniciativa" value={fields.initiative} onChange={updateField} onFocus={focusField} editor={editingMap.get("initiative")} compact />
-                <div className="wounds-block"><label>FERIMENTOS</label><div>{[1,2,3,4,5].map((number) => <Wound key={number} id={`wound${number}`} checked={fields[`wound${number}`] === "true"} onChange={updateField} editor={editingMap.get(`wound${number}`)} onFocus={focusField} />)}</div></div>
-              </div>
-              <div className="skills-grid">{skills.map(([id, label, ability]) => <SheetField key={id} id={id} label={label} hint={ability} value={fields[id]} onChange={updateField} onFocus={focusField} editor={editingMap.get(id)} compact />)}</div>
-              <div className="details-grid">
-                <SheetField id="features" label="Habilidades & equipamentos" value={fields.features} onChange={updateField} onFocus={focusField} editor={editingMap.get("features")} multiline />
-                <SheetField id="spells" label="Magias & recursos" value={fields.spells} onChange={updateField} onFocus={focusField} editor={editingMap.get("spells")} multiline />
-                <SheetField id="notes" label="Anotações da aventura" value={fields.notes} onChange={updateField} onFocus={focusField} editor={editingMap.get("notes")} multiline />
-              </div>
-              <div className="sheet-footer"><span>RPG NEXUS</span><p>Alterações são salvas automaticamente para toda a mesa.</p><span>v1.0</span></div>
-            </>}
+            ) : (
+              <NimbleClassPanel layout={activeLayout} fields={fields} onChange={updateField} onFocus={focusField} editingMap={editingMap} fallbackName={selectedCharacter.name} />
+            )}
             </div>
           </>}
         </section>
@@ -1016,14 +995,16 @@ function CharacterAdminBar({ character, players, busy, layout, onLayoutChange, o
   );
 }
 
-function NimbleClassPanel({ layout, fields, onChange, onFocus, editingMap }: {
+function NimbleClassPanel({ layout, fields, onChange, onFocus, editingMap, fallbackName }: {
   layout: NimbleLayoutDefinition;
   fields: Record<string, string>;
   onChange: (field: string, value: string) => void;
   onFocus: (field: string | null) => void;
   editingMap: Map<string, Presence>;
+  fallbackName: string;
 }) {
   const selectedFeatures = parseClassFeatures(fields.classFeatures);
+  const portraitName = fields.characterName || fallbackName;
   const style = {
     "--class-accent": layout.accent,
     "--class-accent-soft": layout.accentSoft,
@@ -1036,32 +1017,110 @@ function NimbleClassPanel({ layout, fields, onChange, onFocus, editingMap }: {
     onChange("classFeatures", JSON.stringify(next));
   };
 
+  // Ícone temático para cada classe
+  const getResourceIcon = (layoutId: string, resourceIndex: number) => {
+    const icons: Record<string, string[]> = {
+      BASE: ["◆", "◇"],
+      BERSERKER: ["⚔", "◆"],
+      COMMANDER: ["⚑", "★"],
+      HEXBINDER: ["◈", "◆"],
+      HUNTER: ["⦾", "◆"],
+      MAGE: ["◆", "★"],
+      OATHSWORN: ["✦", "♦"],
+      SHEPHERD: ["✦", "◆"],
+      SONGWEAVER: ["♪", "◆"],
+      STORMSHIFTER: ["◆", "◆"],
+      THE_CHEAT: ["◆", "◆"],
+      ZEPHYR: ["◈", "◆"],
+    };
+    return icons[layoutId]?.[resourceIndex] ?? "◆";
+  };
+
   return (
-    <section className={`nimble-class-panel ${layout.id === "BASE" ? "is-base" : ""}`} style={style} aria-label={`Layout ${layout.name}`}>
-      <div className="class-layout-heading">
-        <span className="class-layout-sigil" aria-hidden="true">{layout.id === "THE_CHEAT" ? "TC" : layout.name.slice(0, 1)}</span>
-        <div><small>Layout oficial desta ficha</small><h2>{layout.name}</h2><p>{layout.subtitle}</p></div>
-        <span className="class-layout-private">Por personagem</span>
-      </div>
-      <div className="class-layout-meta">
-        <SheetField id="proficiencies" label="Proficiências" value={fields.proficiencies} onChange={onChange} onFocus={onFocus} editor={editingMap.get("proficiencies")} />
-        {layout.resource1 && <SheetField id="classResource1Current" label={`${layout.resource1} · atual`} value={fields.classResource1Current} onChange={onChange} onFocus={onFocus} editor={editingMap.get("classResource1Current")} compact />}
-        {layout.resource1 && <SheetField id="classResource1Max" label={`${layout.resource1} · máximo`} value={fields.classResource1Max} onChange={onChange} onFocus={onFocus} editor={editingMap.get("classResource1Max")} compact />}
-        {layout.resource2 && <SheetField id="classResource2Current" label={`${layout.resource2} · atual`} value={fields.classResource2Current} onChange={onChange} onFocus={onFocus} editor={editingMap.get("classResource2Current")} compact />}
-        {layout.resource2 && <SheetField id="classResource2Max" label={`${layout.resource2} · máximo`} value={fields.classResource2Max} onChange={onChange} onFocus={onFocus} editor={editingMap.get("classResource2Max")} compact />}
-        {layout.usesSpellTier && <SheetField id="spellTier" label="Spell Tier" value={fields.spellTier} onChange={onChange} onFocus={onFocus} editor={editingMap.get("spellTier")} compact />}
-      </div>
-      {layout.features.length > 0 ? (
-        <div className="class-features" onFocus={() => onFocus("classFeatures")} onBlur={(event) => { if (!event.currentTarget.contains(event.relatedTarget)) onFocus(null); }}>
-          <div className="class-features-title"><strong>{layout.featureTitle}</strong><small>Marque as habilidades escolhidas ou desbloqueadas.</small></div>
-          <div className="class-feature-grid">{layout.features.map((feature) => {
-            const checked = selectedFeatures.includes(feature);
-            return <button type="button" key={feature} className={checked ? "checked" : ""} aria-pressed={checked} onClick={() => toggleFeature(feature)}><i>{checked ? "✓" : ""}</i><span>{feature}</span></button>;
-          })}</div>
-          {editingMap.get("classFeatures") && <i className="editing-tag class-editing-tag" style={{ background: editingMap.get("classFeatures")?.color }}>{editingMap.get("classFeatures")?.displayName}</i>}
+    <div className="nimble-sheet" style={style} aria-label={`Ficha ${layout.name}`}>
+      <aside className="nimble-rail">
+        <div className="nimble-portrait-frame">
+          <div className={`nimble-portrait ${fields.portraitUrl ? "has-image" : ""}`}>
+            {fields.portraitUrl ? <>
+              {/* External portraits are intentionally loaded directly from the URL saved by the player. */}
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src={fields.portraitUrl} alt={`Retrato de ${portraitName}`} />
+            </> : <span>{initials(portraitName)}</span>}
+          </div>
         </div>
-      ) : <p className="base-layout-note">Use a ficha base para classes próprias. O Mestre pode trocar este layout individualmente a qualquer momento.</p>}
-    </section>
+        <div className="nimble-identity-fields">
+          <SheetField id="characterName" label="Nome do personagem" value={fields.characterName} onChange={onChange} onFocus={onFocus} editor={editingMap.get("characterName")} />
+          <SheetField id="ancestryClassLevel" label="Ancestralidade" value={fields.ancestryClassLevel} onChange={onChange} onFocus={onFocus} editor={editingMap.get("ancestryClassLevel")} />
+          <SheetField id="portraitUrl" label="URL do retrato" value={fields.portraitUrl} onChange={onChange} onFocus={onFocus} editor={editingMap.get("portraitUrl")} />
+        </div>
+        <div className="nimble-stars" aria-label="Atributos principais"><span>☆</span><span>★</span><span>★</span><span>☆</span></div>
+        <div className="nimble-attributes">{stats.map(([id, label]) => <SheetField key={id} id={id} label={label} value={fields[id]} onChange={onChange} onFocus={onFocus} editor={editingMap.get(id)} compact />)}</div>
+        <div className="nimble-skill-list">{skills.map(([id, label, ability]) => <SheetField key={id} id={id} label={label} hint={ability} value={fields[id]} onChange={onChange} onFocus={onFocus} editor={editingMap.get(id)} compact />)}</div>
+        <div className="nimble-inventory"><SheetField id="notes" label="Inventário · 10 + STR espaços" value={fields.notes} onChange={onChange} onFocus={onFocus} editor={editingMap.get("notes")} multiline /></div>
+      </aside>
+
+      <section className="nimble-main">
+        <header className="nimble-class-header">
+          <strong>{layout.name.toUpperCase()}</strong>
+          <SheetField id="level" label="Level" value={fields.level} onChange={onChange} onFocus={onFocus} editor={editingMap.get("level")} compact />
+        </header>
+        <div className="nimble-subheader">
+          <SheetField id="subclass" label="Subclass" value={fields.subclass} onChange={onChange} onFocus={onFocus} editor={editingMap.get("subclass")} />
+          <SheetField id="proficiencies" label="Proficiencies" value={fields.proficiencies} onChange={onChange} onFocus={onFocus} editor={editingMap.get("proficiencies")} />
+        </div>
+
+        <div className="nimble-combat-strip">
+          <SheetField id="size" label="Size" value={fields.size} onChange={onChange} onFocus={onFocus} editor={editingMap.get("size")} compact />
+          <SheetField id="speed" label="Speed" value={fields.speed} onChange={onChange} onFocus={onFocus} editor={editingMap.get("speed")} compact />
+          <SheetField id="initiative" label="Initiative" value={fields.initiative} onChange={onChange} onFocus={onFocus} editor={editingMap.get("initiative")} compact />
+          <SheetField id="armor" label="Armor" value={fields.armor} onChange={onChange} onFocus={onFocus} editor={editingMap.get("armor")} compact />
+          <SheetField id="hitDice" label="Hit Dice" value={fields.hitDice} onChange={onChange} onFocus={onFocus} editor={editingMap.get("hitDice")} compact />
+          <div className="nimble-hp-card"><label>Hit Points</label><div><SheetField id="hpCurrent" label="Atual" value={fields.hpCurrent} onChange={onChange} onFocus={onFocus} editor={editingMap.get("hpCurrent")} compact /><b>/</b><SheetField id="hpMax" label="Máx" value={fields.hpMax} onChange={onChange} onFocus={onFocus} editor={editingMap.get("hpMax")} compact /></div><SheetField id="tempHp" label="Temp" value={fields.tempHp} onChange={onChange} onFocus={onFocus} editor={editingMap.get("tempHp")} compact /></div>
+          <div className="nimble-wounds"><span aria-hidden="true">☠</span><label>Wounds</label><div>{[1,2,3,4,5].map((number) => <Wound key={number} id={`wound${number}`} checked={fields[`wound${number}`] === "true"} onChange={onChange} editor={editingMap.get(`wound${number}`)} onFocus={onFocus} />)}</div></div>
+        </div>
+
+        <div className="nimble-powers-row">
+          {layout.features.length > 0 ? (
+            <section className="nimble-features" onFocus={() => onFocus("classFeatures")} onBlur={(event) => { if (!event.currentTarget.contains(event.relatedTarget)) onFocus(null); }}>
+              <div className="nimble-section-title"><strong>{layout.featureTitle}</strong><small>Habilidades escolhidas</small></div>
+              <div>{layout.features.map((feature) => {
+                const checked = selectedFeatures.includes(feature);
+                return <button type="button" key={feature} className={checked ? "checked" : ""} aria-pressed={checked} onClick={() => toggleFeature(feature)}><i>{checked ? "●" : ""}</i><span>{feature}</span></button>;
+              })}</div>
+              {editingMap.get("classFeatures") && <i className="editing-tag" style={{ background: editingMap.get("classFeatures")?.color }}>{editingMap.get("classFeatures")?.displayName}</i>}
+            </section>
+          ) : (
+            <section className="nimble-features nimble-features-empty">
+              <div className="nimble-section-title"><strong>Características da classe</strong><small>Layout base</small></div>
+              <p className="base-layout-note">Use a ficha base para classes próprias. O Mestre pode trocar este layout individualmente a qualquer momento.</p>
+            </section>
+          )}
+          <div className="nimble-resources">
+            {layout.resource1 && (
+              <>
+                <div className="nimble-resource-card"><span className="nimble-drop" aria-hidden="true">{getResourceIcon(layout.id, 0)}</span><SheetField id="classResource1Current" label={layout.resource1} value={fields.classResource1Current} onChange={onChange} onFocus={onFocus} editor={editingMap.get("classResource1Current")} compact /><small>Máx. {fields.classResource1Max || "—"}</small></div>
+                <div className="nimble-resource-max"><SheetField id="classResource1Max" label="Máximo" value={fields.classResource1Max} onChange={onChange} onFocus={onFocus} editor={editingMap.get("classResource1Max")} compact /></div>
+              </>
+            )}
+            {layout.resource2 && (
+              <>
+                <div className="nimble-resource-card"><span className="nimble-drop" aria-hidden="true">{getResourceIcon(layout.id, 1)}</span><SheetField id="classResource2Current" label={layout.resource2} value={fields.classResource2Current} onChange={onChange} onFocus={onFocus} editor={editingMap.get("classResource2Current")} compact /><small>Máx. {fields.classResource2Max || "—"}</small></div>
+                <div className="nimble-resource-max"><SheetField id="classResource2Max" label="Máximo" value={fields.classResource2Max} onChange={onChange} onFocus={onFocus} editor={editingMap.get("classResource2Max")} compact /></div>
+              </>
+            )}
+            {layout.usesSpellTier && (
+              <div className="nimble-spell-tier"><span>Spell Tier</span><SheetField id="spellTier" label="Tier" value={fields.spellTier} onChange={onChange} onFocus={onFocus} editor={editingMap.get("spellTier")} compact /></div>
+            )}
+          </div>
+        </div>
+
+        <div className="nimble-writing-grid">
+          <SheetField id="features" label="Reactions & Utility" value={fields.features} onChange={onChange} onFocus={onFocus} editor={editingMap.get("features")} multiline />
+          <SheetField id="spells" label="Actions & Attacks" value={fields.spells} onChange={onChange} onFocus={onFocus} editor={editingMap.get("spells")} multiline />
+        </div>
+        <footer className="nimble-sheet-footer"><span>RPG NEXUS</span><p>Layout {layout.name} · sincronizado em tempo real</p><span>NIMBLE</span></footer>
+      </section>
+    </div>
   );
 }
 
