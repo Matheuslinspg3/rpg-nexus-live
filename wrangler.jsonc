@@ -43,10 +43,5 @@
   "dev": {
     "port": 8787,
     "inspector_port": 9229
-  },
-
-  // Resource limits
-  "limits": {
-    "cpu_ms": 50000
   }
 }
