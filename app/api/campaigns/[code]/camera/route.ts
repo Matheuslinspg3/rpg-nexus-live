@@ -28,7 +28,7 @@ export async function GET(request: Request, context: Context) {
 
   const sessionId = cleanSession(new URL(request.url).searchParams.get("sessionId"));
   if (!sessionId) return Response.json({ error: "Sessão de câmera inválida." }, { status: 400 });
-  const cutoff = new Date(Date.now() - 15_000).toISOString();
+  const cutoff = new Date(Date.now() - 30_000).toISOString();
   const [peerRows, signalRows] = await Promise.all([
     env.DB.prepare(
       `SELECT user_id AS userId, session_id AS sessionId, display_name AS displayName,
