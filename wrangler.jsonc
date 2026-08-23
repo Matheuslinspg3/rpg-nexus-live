@@ -5,17 +5,12 @@
   "compatibility_flags": ["nodejs_compat"],
 
   // D1 Database binding
-  // IMPORTANT: Replace database_id before first deploy:
-  // 1. Create D1 database: wrangler d1 create rpg-nexus-db
-  // 2. Copy the database_id from output
-  // 3. Replace "REPLACE_WITH_REAL_DATABASE_ID" below
-  // 4. Commit the change to this file
-  // The placeholder will cause deploy to fail intentionally until configured
+  // Connected to existing Cloudflare D1 database
   "d1_databases": [
     {
       "binding": "DB",
       "database_name": "rpg-nexus-db",
-      "database_id": "REPLACE_WITH_REAL_DATABASE_ID",
+      "database_id": "b706c333-a1c5-4816-a024-22df547fe52d",
       "migrations_dir": "./drizzle"
     }
   ],
