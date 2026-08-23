@@ -29,12 +29,12 @@ if [[ -f "${GENERATED_WRANGLER}" ]]; then
   if command -v jq &> /dev/null; then
     jq '. + {"main": "../server/index.js"}' "${GENERATED_WRANGLER}" > "${GENERATED_WRANGLER}.tmp"
     mv "${GENERATED_WRANGLER}.tmp" "${GENERATED_WRANGLER}"
+    echo "Main field value:"
+    jq -r '.main' "${GENERATED_WRANGLER}"
   else
     # Fallback: use node to add main field
-    node -e "const fs=require('fs'); const p='${GENERATED_WRANGLER}'; const c=JSON.parse(fs.readFileSync(p,'utf8')); c.main='../server/index.js'; fs.writeFileSync(p,JSON.stringify(c));"
+    node -e "const fs=require('fs'); const p='${GENERATED_WRANGLER}'; const c=JSON.parse(fs.readFileSync(p,'utf8')); c.main='../server/index.js'; fs.writeFileSync(p,JSON.stringify(c)); console.log('Main field:', c.main);"
   fi
-  echo "Wrangler config after adding main field:"
-  cat "${GENERATED_WRANGLER}" | head -5
 fi
 
 echo "Build complete for Cloudflare Workers!"
