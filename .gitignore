@@ -29,6 +29,12 @@ yarn-error.log*
 
 # env files (can opt-in for committing if needed)
 .env*
+!.env.example
+
+# Cloudflare Workers
+.dev.vars
+.wrangler/
+wrangler.toml.backup
 
 # vercel
 .vercel

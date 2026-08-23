@@ -5,13 +5,14 @@ import handler from "vinext/server/app-router-entry";
 interface Env {
   ASSETS: Fetcher;
   DB: D1Database;
-  IMAGES: {
+  IMAGES?: {
     input(stream: ReadableStream): {
       transform(options: Record<string, unknown>): {
         output(options: { format: string; quality: number }): Promise<{ response(): Response }>;
       };
     };
   };
+  BUCKET?: R2Bucket;
 }
 
 interface ExecutionContext {
@@ -31,10 +32,21 @@ const worker = {
 
     if (url.pathname === "/_vinext/image") {
       const allowedWidths = [...DEFAULT_DEVICE_SIZES, ...DEFAULT_IMAGE_SIZES];
+      
+      // If Image Resizing is not enabled, serve images directly from ASSETS
+      if (!env.IMAGES) {
+        console.warn("Image Resizing (env.IMAGES) not available - serving unoptimized images");
+        const imageUrl = url.searchParams.get("url");
+        if (!imageUrl) {
+          return new Response("Missing url parameter", { status: 400 });
+        }
+        return env.ASSETS.fetch(new Request(new URL(imageUrl, request.url)));
+      }
+
       return handleImageOptimization(request, {
         fetchAsset: (path) => env.ASSETS.fetch(new Request(new URL(path, request.url))),
         transformImage: async (body, { width, format, quality }) => {
-          const result = await env.IMAGES.input(body).transform(width > 0 ? { width } : {}).output({ format, quality });
+          const result = await env.IMAGES!.input(body).transform(width > 0 ? { width } : {}).output({ format, quality });
           return result.response();
         },
       }, allowedWidths);

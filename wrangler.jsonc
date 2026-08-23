@@ -1,0 +1,47 @@
+{
+  "$schema": "https://raw.githubusercontent.com/cloudflare/workers-sdk/main/packages/wrangler/config-schema.json",
+  "name": "rpg-nexus-live",
+  "compatibility_date": "2024-09-23",
+  "compatibility_flags": ["nodejs_compat"],
+
+  // D1 Database binding
+  // Connected to existing Cloudflare D1 database
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "rpg-nexus-db",
+      "database_id": "b706c333-a1c5-4816-a024-22df547fe52d",
+      "migrations_dir": "./drizzle"
+    }
+  ],
+
+  // R2 Bucket binding
+  // Create bucket: wrangler r2 bucket create rpg-nexus-files
+  "r2_buckets": [
+    {
+      "binding": "BUCKET",
+      "bucket_name": "rpg-nexus-files"
+    }
+  ],
+
+  // Image Resizing (env.IMAGES)
+  // The worker uses env.IMAGES for /_vinext/image endpoint
+  // This binding is automatically provided by Cloudflare Workers when Image Resizing is enabled
+  // To enable:
+  // 1. After first deploy, go to Cloudflare Dashboard
+  // 2. Workers & Pages → rpg-nexus-live → Settings → Functions
+  // 3. Enable "Image Resizing" (100k requests/month free)
+  // Note: Worker has fallback - images will be served unoptimized if not enabled
+
+  // Assets binding for static files (CSS, JS, images)
+  "assets": {
+    "directory": "./dist/client",
+    "binding": "ASSETS"
+  },
+
+  // Local development server
+  "dev": {
+    "port": 8787,
+    "inspector_port": 9229
+  }
+}
