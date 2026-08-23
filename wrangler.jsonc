@@ -1,23 +1,27 @@
 {
   "$schema": "https://raw.githubusercontent.com/cloudflare/workers-sdk/main/packages/wrangler/config-schema.json",
   "name": "rpg-nexus-live",
-  "main": "dist/index.js",
   "compatibility_date": "2024-09-23",
-  "compatibility_flags": ["nodejs_compat_v2"],
+  "compatibility_flags": ["nodejs_compat"],
 
   // D1 Database binding
-  // After creating the database in Cloudflare Dashboard, update database_id
+  // IMPORTANT: Replace database_id before first deploy:
+  // 1. Create D1 database: wrangler d1 create rpg-nexus-db
+  // 2. Copy the database_id from output
+  // 3. Replace "REPLACE_WITH_REAL_DATABASE_ID" below
+  // 4. Commit the change to this file
+  // The placeholder will cause deploy to fail intentionally until configured
   "d1_databases": [
     {
       "binding": "DB",
       "database_name": "rpg-nexus-db",
-      "database_id": "00000000-0000-0000-0000-000000000000",
+      "database_id": "REPLACE_WITH_REAL_DATABASE_ID",
       "migrations_dir": "./drizzle"
     }
   ],
 
   // R2 Bucket binding
-  // After creating the bucket in Cloudflare Dashboard, update bucket_name if needed
+  // Create bucket: wrangler r2 bucket create rpg-nexus-files
   "r2_buckets": [
     {
       "binding": "BUCKET",
@@ -25,56 +29,29 @@
     }
   ],
 
-  // Image Resizing for /_vinext/image endpoint
-  // Enable "Image Resizing" add-on in Cloudflare Dashboard
-  // No explicit binding needed - accessed via fetch to same domain
+  // Image Resizing (env.IMAGES)
+  // The worker uses env.IMAGES for /_vinext/image endpoint
+  // This binding is automatically provided by Cloudflare Workers when Image Resizing is enabled
+  // To enable:
+  // 1. After first deploy, go to Cloudflare Dashboard
+  // 2. Workers & Pages → rpg-nexus-live → Settings → Functions
+  // 3. Enable "Image Resizing" (100k requests/month free)
+  // Note: Worker has fallback - images will be served unoptimized if not enabled
 
-  // Assets binding for static files
+  // Assets binding for static files (CSS, JS, images)
   "assets": {
     "directory": "./dist/client",
     "binding": "ASSETS"
   },
 
-  // Build configuration
-  "build": {
-    "command": "npm run build"
-  },
-
-  // Local development
+  // Local development server
   "dev": {
     "port": 8787,
     "inspector_port": 9229
   },
 
-  // Deployment configuration
+  // Resource limits
   "limits": {
     "cpu_ms": 50000
-  },
-
-  // Environment-specific overrides
-  "env": {
-    "preview": {
-      "name": "rpg-nexus-live-preview",
-      "d1_databases": [
-        {
-          "binding": "DB",
-          "database_name": "rpg-nexus-db-preview",
-          "database_id": "00000000-0000-0000-0000-000000000000"
-        }
-      ],
-      "r2_buckets": [
-        {
-          "binding": "BUCKET",
-          "bucket_name": "rpg-nexus-files-preview"
-        }
-      ]
-    },
-    "production": {
-      "name": "rpg-nexus-live",
-      "routes": [
-        // Add your custom domain here after DNS setup
-        // { "pattern": "rpg-nexus.example.com", "custom_domain": true }
-      ]
-    }
   }
 }
