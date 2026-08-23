@@ -10,36 +10,47 @@ const SITE_CREATOR_PLACEHOLDER_DATABASE_ID =
 // Try to load ChatGPT Sites config if it exists, otherwise use Cloudflare defaults
 let hostingConfig: { d1?: string; r2?: string; project_id?: string } = {};
 const hostingConfigPath = resolve(process.cwd(), ".openai/hosting.json");
-if (existsSync(hostingConfigPath)) {
-  hostingConfig = await import("./.openai/hosting.json", { with: { type: "json" } }).then(m => m.default);
-}
+// Use environment variable to explicitly control the build target
+const isCloudflareTarget = process.env.BUILD_TARGET === "cloudflare";
+const isSitesEnvironment = existsSync(hostingConfigPath) && !isCloudflareTarget;
 
-const { d1 = "DB", r2 = "BUCKET" } = hostingConfig;
+if (isSitesEnvironment) {
+  try {
+    hostingConfig = await import("./.openai/hosting.json", { with: { type: "json" } }).then(m => m.default);
+  } catch (e) {
+    // File doesn't exist or can't be loaded, use empty config
+    console.warn("Could not load .openai/hosting.json, using empty config");
+  }
+}
 
 // macOS Seatbelt blocks FSEvents, so Codex previews need polling for HMR.
 const isCodexSeatbeltSandbox = process.env.CODEX_SANDBOX === "seatbelt";
 
-const localBindingConfig = {
-  main: "./worker/index.ts",
-  compatibility_flags: ["nodejs_compat"],
-  d1_databases: d1
-    ? [
-        {
-          binding: d1,
-          database_name: "site-creator-d1",
-          database_id: SITE_CREATOR_PLACEHOLDER_DATABASE_ID,
-        },
-      ]
-    : [],
-  r2_buckets: r2
-    ? [
-        {
-          binding: r2,
-          bucket_name: "site-creator-r2",
-        },
-      ]
-    : [],
-};
+// For ChatGPT Sites environment, configure local bindings for dev server
+// For standalone Cloudflare, wrangler.jsonc is the source of truth
+const localBindingConfig = isSitesEnvironment
+  ? {
+      main: "./worker/index.ts",
+      compatibility_flags: ["nodejs_compat"],
+      d1_databases: hostingConfig.d1
+        ? [
+            {
+              binding: hostingConfig.d1,
+              database_name: "site-creator-d1",
+              database_id: SITE_CREATOR_PLACEHOLDER_DATABASE_ID,
+            },
+          ]
+        : [],
+      r2_buckets: hostingConfig.r2
+        ? [
+            {
+              binding: hostingConfig.r2,
+              bucket_name: "site-creator-r2",
+            },
+          ]
+        : [],
+    }
+  : undefined; // Let wrangler.jsonc be the sole source for bindings
 
 export default defineConfig(async () => {
   // Keep Wrangler and Miniflare state project-local. These are non-secret tool
@@ -59,14 +70,21 @@ export default defineConfig(async () => {
         ? { watch: { useFsEvents: false, usePolling: true } }
         : {}),
     },
+    build: {
+      rollupOptions: {
+        external: ["cloudflare:workers"],
+      },
+    },
     plugins: [
       vinext(),
       // Only use Sites plugin if hosting.json exists (ChatGPT Sites environment)
-      ...(existsSync(hostingConfigPath) ? [sites()] : []),
+      ...(isSitesEnvironment ? [sites()] : []),
       cloudflare({
         viteEnvironment: { name: "rsc", childEnvironments: ["ssr"] },
         inspectorPort: false,
-        config: localBindingConfig,
+        // Only pass config in Sites environment to avoid duplicate bindings
+        // In Cloudflare deployment, wrangler.jsonc is the sole source of truth
+        ...(localBindingConfig ? { config: localBindingConfig } : {}),
       }),
     ],
   };
