@@ -82,9 +82,11 @@ export default defineConfig(async () => {
       cloudflare({
         viteEnvironment: { name: "rsc", childEnvironments: ["ssr"] },
         inspectorPort: false,
-        // Only pass config in Sites environment to avoid duplicate bindings
-        // In Cloudflare deployment, wrangler.jsonc is the sole source of truth
-        ...(localBindingConfig ? { config: localBindingConfig } : {}),
+        // Always specify main entry point for Cloudflare Workers
+        // In Cloudflare deployment, other config comes from wrangler.jsonc
+        config: localBindingConfig || {
+          main: "./worker/index.ts",
+        },
       }),
     ],
   };
