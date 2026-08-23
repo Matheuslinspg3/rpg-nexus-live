@@ -22,6 +22,17 @@ echo "Building for Cloudflare Workers..."
 export BUILD_TARGET=cloudflare
 vinext build
 
+# Check if worker entry point exists
+if [[ -f "dist/server/index.js" ]]; then
+  echo "Worker entry point generated: dist/server/index.js"
+  echo "First 10 lines of worker:"
+  head -10 dist/server/index.js
+  echo "Last 10 lines of worker:"
+  tail -10 dist/server/index.js
+else
+  echo "ERROR: dist/server/index.js not found!"
+fi
+
 # Ensure the generated wrangler.json has the main field
 GENERATED_WRANGLER="dist/client/wrangler.json"
 if [[ -f "${GENERATED_WRANGLER}" ]]; then
