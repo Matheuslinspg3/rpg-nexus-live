@@ -22,8 +22,18 @@ echo "Building for Cloudflare Workers..."
 export BUILD_TARGET=cloudflare
 vinext build
 
-# vinext generates dist/client/wrangler.json with "main": "../server/index.js"
-# This is correct - wrangler will use that file when deploying
+# Ensure the generated wrangler.json has the main field
+GENERATED_WRANGLER="dist/client/wrangler.json"
+if [[ -f "${GENERATED_WRANGLER}" ]]; then
+  echo "Ensuring main field in ${GENERATED_WRANGLER}..."
+  if command -v jq &> /dev/null; then
+    jq '. + {"main": "../server/index.js"}' "${GENERATED_WRANGLER}" > "${GENERATED_WRANGLER}.tmp"
+    mv "${GENERATED_WRANGLER}.tmp" "${GENERATED_WRANGLER}"
+  else
+    # Fallback: use node to add main field
+    node -e "const fs=require('fs'); const p='${GENERATED_WRANGLER}'; const c=JSON.parse(fs.readFileSync(p,'utf8')); c.main='../server/index.js'; fs.writeFileSync(p,JSON.stringify(c));"
+  fi
+fi
 
 echo "Build complete for Cloudflare Workers!"
 echo "Entry point: dist/server/index.js (via dist/client/wrangler.json)"
