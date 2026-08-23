@@ -231,9 +231,9 @@ export function CameraProvider({ campaignCode, user, role, activeView, children 
           if (!active || active.sessionId !== connection.sessionId) removeConnection(userId);
         }
         for (const peer of data.peers) {
-          if (user.id.localeCompare(peer.userId) < 0) {
-            try { await ensureConnection(peer, true); } catch { removeConnection(peer.userId); }
-          }
+          // Always ensure connection exists, but only the "lower" ID sends the offer
+          const shouldOffer = user.id.localeCompare(peer.userId) < 0;
+          try { await ensureConnection(peer, shouldOffer); } catch { removeConnection(peer.userId); }
         }
 
         const acknowledged: string[] = [];
