@@ -81,10 +81,19 @@ GitHub (Matheuslinspg3/rpg-nexus-live)
     │   └── Cloudflare Workers Build
     │       └── Automatic Deploy
     │
-    ├── wrangler.jsonc (configuration)
+    ├── wrangler.jsonc (source configuration)
+    │   ├── compatibility_flags: ["nodejs_compat"]
+    │   ├── D1 binding placeholder
+    │   ├── R2 binding
+    │   └── Assets config
     │
-    ├── Worker Entry: dist/index.js
-    │   └── Built from: worker/index.ts
+    ├── Build Output (vinext build)
+    │   ├── dist/server/index.js (Worker entry)
+    │   ├── dist/client/ (Assets)
+    │   └── dist/client/wrangler.json (generated config with main field)
+    │
+    ├── Worker Entry: dist/server/index.js
+    │   └── Built from: worker/index.ts (with IMAGES fallback)
     │
     ├── D1 Database: rpg-nexus-db
     │   ├── Binding: "DB"
@@ -96,7 +105,9 @@ GitHub (Matheuslinspg3/rpg-nexus-live)
     │   └── Path: campaigns/{id}/scenes/{uuid}.{ext}
     │
     └── Image Resizing (Cloudflare add-on)
-        └── Endpoint: /_vinext/image
+        ├── Binding: env.IMAGES (auto-provided)
+        ├── Endpoint: /_vinext/image
+        └── Fallback: Unoptimized images if not enabled
 ```
 
 ---
@@ -107,7 +118,8 @@ GitHub (Matheuslinspg3/rpg-nexus-live)
 
 | Arquivo | Propósito |
 |---------|-----------|
-| `wrangler.jsonc` | Configuração principal do Cloudflare Workers |
+| `wrangler.jsonc` | Configuração principal do Cloudflare Workers (compatibility_flags, bindings) |
+| `scripts/build-cloudflare.sh` | Script de build standalone que esconde hosting.json temporariamente |
 | `.env.example` | Template de variáveis de ambiente |
 | `CLOUDFLARE_MIGRATION.md` | Este documento |
 
@@ -115,9 +127,12 @@ GitHub (Matheuslinspg3/rpg-nexus-live)
 
 | Arquivo | Alteração | Motivo |
 |---------|-----------|--------|
+| `wrangler.jsonc` | Configuração completa do Cloudflare Workers | Define bindings D1, R2, Assets e flags de compatibilidade |
 | `vite.config.ts` | `.openai/hosting.json` agora é opcional | Permitir build fora do ChatGPT Sites |
 | `package.json` | Novos scripts (`deploy`, `db:migrate`, etc) | Comandos específicos do Cloudflare |
 | `.gitignore` | Adiciona `.dev.vars` e exclui `.env.example` | Proteger secrets locais |
+| `worker/index.ts` | Adicionado fallback para `env.IMAGES` | Evitar quebra se Image Resizing não estiver habilitado |
+| `scripts/build-cloudflare.sh` | Script para build standalone | Esconde `hosting.json` durante build e define `BUILD_TARGET=cloudflare` |
 
 ### Arquivos Preservados (NÃO alterados)
 
@@ -164,17 +179,22 @@ wrangler whoami
    - **Database name**: `rpg-nexus-db`
    - **Location**: Automatic (ou escolha região)
 5. Clique em **Create**
-6. **IMPORTANTE**: Copie o **Database ID** exibido
-7. Edite `wrangler.jsonc`:
+6. **IMPORTANTE**: Copie o **Database ID** exibido (formato: `xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx`)
+7. Edite `wrangler.jsonc` na raiz do projeto:
    ```jsonc
    "d1_databases": [
      {
        "binding": "DB",
        "database_name": "rpg-nexus-db",
-       "database_id": "SEU-DATABASE-ID-AQUI", // ← Cole aqui
+       "database_id": "REPLACE_WITH_REAL_DATABASE_ID", // ← Substituir pelo Database ID real
        "migrations_dir": "./drizzle"
      }
    ],
+   ```
+8. Commit a alteração:
+   ```bash
+   git add wrangler.jsonc
+   git commit -m "config: add D1 database ID"
    ```
 
 ### Passo 2: Aplicar Migrations no D1
@@ -222,10 +242,14 @@ Você deve ver as tabelas:
 
 ### Passo 4: Habilitar Image Resizing (Opcional mas Recomendado)
 
-1. Navegue para **Workers & Pages** → **Plans**
-2. Se necessário, habilite o add-on **Image Resizing**
+**IMPORTANTE**: O worker possui fallback - se Image Resizing não estiver habilitado, as imagens serão servidas diretamente sem otimização.
+
+1. Após o primeiro deploy, navegue para **Workers & Pages** → **rpg-nexus-live**
+2. Vá em **Settings** → **Functions** → **Bindings**
+3. Habilite o add-on **Image Resizing**
    - Plano gratuito: 100.000 requisições/mês
    - Usado pelo endpoint `/_vinext/image`
+4. Não é necessário adicionar binding manual - o `env.IMAGES` é fornecido automaticamente quando o add-on está ativo
 
 ---
 
@@ -246,8 +270,15 @@ Você deve ver as tabelas:
 #### Build Configuration
 ```
 Build command: npm run build:cloudflare
-Build output directory: dist
+Build output directory: dist/client
 ```
+
+**IMPORTANTE**: O comando `npm run build:cloudflare` executa `vinext build` que gera:
+- `dist/server/index.js` - Worker entry point
+- `dist/client/` - Assets estáticos
+- `dist/client/wrangler.json` - Configuração gerada (com `main: ../server/index.js`)
+
+O Wrangler usa `dist/client/wrangler.json` como base e mescla com `wrangler.jsonc` da raiz.
 
 #### Root Directory
 ```
@@ -501,18 +532,17 @@ wrangler tail --status error
 
 ### Erro: "Image optimization failed"
 
-**Problema**: Image Resizing não está habilitado ou IMAGES binding ausente.
+**Problema**: Image Resizing não está habilitado ou `env.IMAGES` ausente.
 
-**Solução Temporária**:
-- O código atual do `worker/index.ts` usa `env.IMAGES` que é específico do Sites
-- Para Cloudflare, você tem duas opções:
+**Solução**:
+O código atual em `worker/index.ts` possui fallback automático. Se `env.IMAGES` não estiver disponível:
+- Imagens serão servidas diretamente de `ASSETS` sem otimização
+- Um warning será logado: `"Image Resizing (env.IMAGES) not available - serving unoptimized images"`
 
-**Opção 1 (Recomendada)**: Habilitar Image Resizing
-- Dashboard → Workers & Pages → Plans
-- Enable Image Resizing add-on
-
-**Opção 2**: Remover otimização de imagem
-- Editar `worker/index.ts` e retornar as imagens direto do ASSETS
+**Para habilitar otimização** (opcional):
+1. Dashboard → Workers & Pages → rpg-nexus-live → Settings → Functions
+2. Enable Image Resizing add-on (100k requests/month free)
+3. Re-deploy ou aguardar próximo deploy automático
 
 ### Build Falha Localmente
 
@@ -582,15 +612,16 @@ wrangler d1 export rpg-nexus-db --remote --output backup.sql
 
 ### 1. **Image Resizing Binding**
 
-**Risco**: Worker atual usa `env.IMAGES` que pode não existir no Cloudflare Workers padrão.
+**Risco**: Worker usa `env.IMAGES` para otimização de imagens no endpoint `/_vinext/image`.
 
-**Impacto**: Otimização de imagens pode falhar.
+**Impacto**: Se Image Resizing não estiver habilitado, as imagens serão servidas diretamente sem otimização (fallback implementado).
 
 **Mitigação**:
-- Habilitar Image Resizing add-on
-- Ou adaptar código para usar `fetch()` com Image Resizing URL
+- Fallback implementado em `worker/index.ts` - imagens funcionam mesmo sem o add-on
+- Para otimização, habilitar Image Resizing add-on no dashboard após deploy
+- `env.IMAGES` é fornecido automaticamente quando o add-on está ativo
 
-**Status**: Precisa ser testado pós-deploy
+**Status**: ✅ Resolvido com fallback seguro
 
 ### 2. **WebRTC Signaling via D1**
 
@@ -666,6 +697,20 @@ Se encontrar problemas:
 
 ---
 
-**Última atualização**: 2025-01-20
-**Versão da migração**: 1.0.0
+**Última atualização**: 2026-08-23
+**Versão da migração**: 1.1.0
 **Branch**: `migration/cloudflare`
+
+## 📝 Changelog
+
+### v1.1.0 (2026-08-23)
+- ✅ Corrigido `compatibility_flags`: `nodejs_compat` em vez de `nodejs_compat_v2`
+- ✅ Adicionado fallback para `env.IMAGES` no `worker/index.ts`
+- ✅ Corrigido entrypoint: `dist/server/index.js` (vinext gera automaticamente)
+- ✅ Simplificado `build-cloudflare.sh` (vinext adiciona `main` automaticamente)
+- ✅ Validado com `wrangler deploy --dry-run`: PASS
+- ✅ Build: PASS
+- ✅ Lint: PASS (1 warning não crítico)
+
+### v1.0.0 (2025-01-20)
+- Migração inicial para Cloudflare Workers
