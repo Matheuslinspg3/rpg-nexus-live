@@ -30,6 +30,127 @@ export function useCamera() {
   return context;
 }
 
+// Simple peer connection manager
+class SimplePeerManager {
+  private peers = new Map<string, RTCPeerConnection>();
+  private localStream: MediaStream | null = null;
+  private onStreamCallback: ((userId: string, stream: MediaStream) => void) | null = null;
+
+  constructor() {}
+
+  setLocalStream(stream: MediaStream | null) {
+    this.localStream = stream;
+    
+    // Update all existing connections
+    for (const [userId, pc] of this.peers) {
+      const senders = pc.getSenders();
+      const videoTrack = stream?.getVideoTracks()[0] || null;
+      
+      const videoSender = senders.find(s => s.track?.kind === 'video');
+      if (videoSender) {
+        void videoSender.replaceTrack(videoTrack);
+      } else if (videoTrack) {
+        pc.addTrack(videoTrack, stream!);
+      }
+    }
+  }
+
+  onStream(callback: (userId: string, stream: MediaStream) => void) {
+    this.onStreamCallback = callback;
+  }
+
+  async connectToPeer(userId: string): Promise<RTCSessionDescriptionInit> {
+    if (this.peers.has(userId)) {
+      const pc = this.peers.get(userId)!;
+      pc.close();
+    }
+
+    const pc = new RTCPeerConnection({
+      iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
+    });
+
+    this.peers.set(userId, pc);
+
+    // Add local stream if available
+    if (this.localStream) {
+      for (const track of this.localStream.getTracks()) {
+        pc.addTrack(track, this.localStream);
+      }
+    }
+
+    // Handle incoming streams
+    pc.ontrack = (event) => {
+      if (event.streams[0] && this.onStreamCallback) {
+        this.onStreamCallback(userId, event.streams[0]);
+      }
+    };
+
+    pc.oniceconnectionstatechange = () => {
+      if (pc.iceConnectionState === "failed" || pc.iceConnectionState === "closed") {
+        this.peers.delete(userId);
+      }
+    };
+
+    const offer = await pc.createOffer();
+    await pc.setLocalDescription(offer);
+    return offer;
+  }
+
+  async acceptConnection(userId: string, offer: RTCSessionDescriptionInit): Promise<RTCSessionDescriptionInit> {
+    if (this.peers.has(userId)) {
+      const pc = this.peers.get(userId)!;
+      pc.close();
+    }
+
+    const pc = new RTCPeerConnection({
+      iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
+    });
+
+    this.peers.set(userId, pc);
+
+    // Add local stream if available
+    if (this.localStream) {
+      for (const track of this.localStream.getTracks()) {
+        pc.addTrack(track, this.localStream);
+      }
+    }
+
+    // Handle incoming streams
+    pc.ontrack = (event) => {
+      if (event.streams[0] && this.onStreamCallback) {
+        this.onStreamCallback(userId, event.streams[0]);
+      }
+    };
+
+    await pc.setRemoteDescription(offer);
+    const answer = await pc.createAnswer();
+    await pc.setLocalDescription(answer);
+    return answer;
+  }
+
+  async handleAnswer(userId: string, answer: RTCSessionDescriptionInit) {
+    const pc = this.peers.get(userId);
+    if (pc && pc.signalingState === "have-local-offer") {
+      await pc.setRemoteDescription(answer);
+    }
+  }
+
+  disconnect(userId: string) {
+    const pc = this.peers.get(userId);
+    if (pc) {
+      pc.close();
+      this.peers.delete(userId);
+    }
+  }
+
+  disconnectAll() {
+    for (const pc of this.peers.values()) {
+      pc.close();
+    }
+    this.peers.clear();
+  }
+}
+
 export function CameraProvider({
   children,
   user,
@@ -46,29 +167,90 @@ export function CameraProvider({
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState("");
   const localStreamRef = useRef<MediaStream | null>(null);
-  const peerConnectionsRef = useRef<Map<string, RTCPeerConnection>>(new Map());
+  const peerManagerRef = useRef<SimplePeerManager>(new SimplePeerManager());
   const pollingRef = useRef<number>(0);
+  const signalingChannelRef = useRef<BroadcastChannel | null>(null);
 
-  // Simple polling for camera states
+  // Handle incoming remote streams
+  useEffect(() => {
+    peerManagerRef.current.onStream((userId, stream) => {
+      setStates((current) =>
+        current.map((state) =>
+          state.userId === userId ? { ...state, stream } : state
+        )
+      );
+    });
+  }, []);
+
+  // Simple signaling via BroadcastChannel (works in same browser, different tabs)
+  useEffect(() => {
+    const channel = new BroadcastChannel(`camera-${campaignCode}`);
+    signalingChannelRef.current = channel;
+
+    channel.onmessage = async (event) => {
+      const { type, from, payload } = event.data;
+      
+      if (from === user.id) return; // Ignore own messages
+
+      if (type === "offer") {
+        const answer = await peerManagerRef.current.acceptConnection(from, payload);
+        channel.postMessage({ type: "answer", from: user.id, to: from, payload: answer });
+      } else if (type === "answer" && event.data.to === user.id) {
+        await peerManagerRef.current.handleAnswer(from, payload);
+      }
+    };
+
+    return () => {
+      channel.close();
+    };
+  }, [campaignCode, user.id]);
+
+  // Poll camera states
   const pollStates = useCallback(async () => {
     try {
       const response = await fetch(`/api/campaigns/${campaignCode}/camera`, { cache: "no-store" });
       if (!response.ok) return;
       const data = await response.json() as { states: Array<{ userId: string; displayName: string; isActive: boolean }> };
       
-      setStates((current) =>
-        data.states.map((state) => {
-          const existing = current.find((s) => s.userId === state.userId);
-          return {
-            ...state,
-            stream: existing?.stream || null,
-          };
-        })
-      );
+      setStates((current) => {
+        const newStates = data.states
+          .filter(s => s.userId !== user.id) // Exclude self
+          .map((state) => {
+            const existing = current.find((s) => s.userId === state.userId);
+            return {
+              ...state,
+              stream: existing?.stream || null,
+            };
+          });
+
+        // Connect to new active peers
+        for (const state of newStates) {
+          if (state.isActive && !current.find(s => s.userId === state.userId)?.stream) {
+            // New active peer detected, send offer
+            peerManagerRef.current.connectToPeer(state.userId).then(offer => {
+              signalingChannelRef.current?.postMessage({
+                type: "offer",
+                from: user.id,
+                to: state.userId,
+                payload: offer,
+              });
+            }).catch(console.error);
+          }
+        }
+
+        // Disconnect from removed peers
+        for (const oldState of current) {
+          if (!newStates.find(s => s.userId === oldState.userId)) {
+            peerManagerRef.current.disconnect(oldState.userId);
+          }
+        }
+
+        return newStates;
+      });
     } catch (error) {
       console.error("Failed to poll camera states:", error);
     }
-  }, [campaignCode]);
+  }, [campaignCode, user.id]);
 
   // Update server state
   const updateServerState = useCallback(async (isActive: boolean) => {
@@ -97,6 +279,7 @@ export function CameraProvider({
 
       localStreamRef.current = stream;
       setLocalStream(stream);
+      peerManagerRef.current.setLocalStream(stream);
       await updateServerState(true);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Não foi possível acessar a câmera.");
@@ -115,9 +298,8 @@ export function CameraProvider({
       setLocalStream(null);
     }
 
-    // Close all peer connections
-    peerConnectionsRef.current.forEach((pc) => pc.close());
-    peerConnectionsRef.current.clear();
+    peerManagerRef.current.setLocalStream(null);
+    peerManagerRef.current.disconnectAll();
 
     void updateServerState(false);
   }, [updateServerState]);
@@ -125,7 +307,7 @@ export function CameraProvider({
   // Polling loop
   useEffect(() => {
     void pollStates(); // Initial poll
-    pollingRef.current = window.setInterval(() => void pollStates(), 2000);
+    pollingRef.current = window.setInterval(() => void pollStates(), 3000);
 
     return () => {
       window.clearInterval(pollingRef.current);
