@@ -57,6 +57,13 @@
       "when": 1787221000000,
       "tag": "0007_add_camera_signals",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "6",
+      "when": 1787222000000,
+      "tag": "0008_migrate_to_daily",
+      "breakpoints": true
     }
   ]
 }

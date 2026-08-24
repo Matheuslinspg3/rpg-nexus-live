@@ -63,37 +63,13 @@ export const diceRolls = sqliteTable(
   (table) => [index("dice_rolls_campaign_created_idx").on(table.campaignId, table.createdAt)],
 );
 
-// Simplified camera system - stores only active camera states
-export const cameraStates = sqliteTable(
-  "camera_states",
-  {
-    campaignId: text("campaign_id").notNull().references(() => campaigns.id, { onDelete: "cascade" }),
-    userId: text("user_id").notNull(),
-    displayName: text("display_name").notNull(),
-    isActive: integer("is_active", { mode: "boolean" }).notNull().default(false),
-    updatedAt: text("updated_at").notNull(),
-  },
-  (table) => [
-    primaryKey({ columns: [table.campaignId, table.userId] }),
-    index("camera_states_campaign_active_idx").on(table.campaignId, table.isActive, table.updatedAt),
-  ],
-);
-
-// WebRTC signaling messages
-export const cameraSignals = sqliteTable(
-  "camera_signals",
-  {
-    id: text("id").primaryKey(),
-    campaignId: text("campaign_id").notNull().references(() => campaigns.id, { onDelete: "cascade" }),
-    fromUserId: text("from_user_id").notNull(),
-    toUserId: text("to_user_id").notNull(),
-    signal: text("signal").notNull(), // JSON: offer, answer, or ice candidate
-    createdAt: text("created_at").notNull(),
-  },
-  (table) => [
-    index("camera_signals_recipient_idx").on(table.campaignId, table.toUserId, table.createdAt),
-  ],
-);
+// Daily.co camera rooms
+export const cameraRooms = sqliteTable("camera_rooms", {
+  campaignId: text("campaign_id").primaryKey().references(() => campaigns.id, { onDelete: "cascade" }),
+  roomUrl: text("room_url").notNull(),
+  roomName: text("room_name").notNull(),
+  createdAt: text("created_at").notNull(),
+});
 
 export const shieldLayouts = sqliteTable(
   "shield_layouts",
