@@ -1,10 +1,9 @@
-import { env } from "cloudflare:workers";
-import { getAuthUser } from "../../../../auth";
+import { requireUser, db } from "@/lib/api-helpers";
 
 export const dynamic = "force-dynamic";
 
 type Context = { params: Promise<{ code: string }> };
-type Membership = { id: string; role: "master" | "player" };
+type Membership = { campaignId: string; role: "master" | "player" };
 type RollRow = {
   id: string;
   rollerUserId: string;
@@ -20,12 +19,15 @@ type RollRow = {
 
 const ALLOWED_DICE = new Set([4, 6, 8, 10, 12, 20, 100]);
 
-async function membership(code: string, userId: string) {
-  return env.DB.prepare(
-    `SELECT c.id, m.role FROM campaigns c
-      JOIN campaign_members m ON m.campaign_id = c.id
-     WHERE c.code = ? AND m.email = ?`,
-  ).bind(code.toUpperCase(), userId).first<Membership>();
+async function membership(supabase: any, code: string, email: string): Promise<Membership | null> {
+  const { data } = await supabase
+    .from("campaigns")
+    .select("id, campaign_members!inner(role)")
+    .eq("code", code.toUpperCase())
+    .eq("campaign_members.email", email)
+    .single();
+  if (!data) return null;
+  return { campaignId: data.id as string, role: (data.campaign_members as any[])[0].role as "master" | "player" };
 }
 
 function secureDie(sides: number) {
@@ -41,7 +43,7 @@ function toRoll(row: RollRow) {
   try {
     const parsed = JSON.parse(row.resultsJson);
     if (Array.isArray(parsed)) results = parsed.filter((value): value is number => Number.isInteger(value));
-  } catch { /* Historical malformed data is shown without individual dice. */ }
+  } catch { /* ignore malformed */ }
   return {
     id: row.id,
     rollerUserId: row.rollerUserId,
@@ -57,39 +59,39 @@ function toRoll(row: RollRow) {
 }
 
 export async function GET(request: Request, context: Context) {
-  const user = await getAuthUser(request);
-  if (!user) return Response.json({ error: "Entre para continuar." }, { status: 401 });
+  const user = await requireUser();
+  if (!user || !user.email) return Response.json({ error: "Entre para continuar." }, { status: 401 });
   const { code } = await context.params;
-  const member = await membership(code, user.id);
+  const supabase = db();
+  const member = await membership(supabase, code, user.email);
   if (!member) return Response.json({ error: "Acesso negado." }, { status: 403 });
 
-  const rows = await env.DB.prepare(
-    `SELECT id, roller_user_id AS rollerUserId, roller_name AS rollerName,
-            visibility, dice_sides AS diceSides, dice_count AS diceCount,
-            modifier, results_json AS resultsJson, total, created_at AS createdAt
-       FROM dice_rolls
-      WHERE campaign_id = ?
-        AND (visibility = 'public' OR ? = 'master' OR roller_user_id = ?)
-      ORDER BY created_at DESC
-      LIMIT 80`,
-  ).bind(member.id, member.role, user.id).all<RollRow>();
+  const query = supabase
+    .from("dice_rolls")
+    .select("id, roller_user_id, roller_name, visibility, dice_sides, dice_count, modifier, results_json, total, created_at")
+    .eq("campaign_id", member.campaignId)
+    .order("created_at", { ascending: false })
+    .limit(80);
 
-  return Response.json({ rolls: (rows.results ?? []).map(toRoll) });
+  if (member.role !== "master") {
+    query.or(`visibility.eq.public,roller_user_id.eq.${user.email}`);
+  }
+
+  const { data, error } = await query;
+  if (error) return Response.json({ error: "Não foi possível carregar as rolagens." }, { status: 500 });
+
+  return Response.json({ rolls: (data || []).map((r: any) => toRoll(r)) });
 }
 
 export async function POST(request: Request, context: Context) {
-  const user = await getAuthUser(request);
-  if (!user) return Response.json({ error: "Entre para continuar." }, { status: 401 });
+  const user = await requireUser();
+  if (!user || !user.email) return Response.json({ error: "Entre para continuar." }, { status: 401 });
   const { code } = await context.params;
-  const member = await membership(code, user.id);
+  const supabase = db();
+  const member = await membership(supabase, code, user.email);
   if (!member) return Response.json({ error: "Acesso negado." }, { status: 403 });
 
-  const payload = (await request.json()) as {
-    diceSides?: unknown;
-    diceCount?: unknown;
-    modifier?: unknown;
-    visibility?: unknown;
-  };
+  const payload = (await request.json()) as { diceSides?: unknown; diceCount?: unknown; modifier?: unknown; visibility?: unknown };
   const diceSides = Number(payload.diceSides);
   const diceCount = Number(payload.diceCount);
   const modifier = Number(payload.modifier ?? 0);
@@ -105,37 +107,27 @@ export async function POST(request: Request, context: Context) {
 
   const results = Array.from({ length: diceCount }, () => secureDie(diceSides));
   const total = results.reduce((sum, value) => sum + value, 0) + modifier;
-  const roll: RollRow = {
-    id: crypto.randomUUID(),
-    rollerUserId: user.id,
-    rollerName: user.displayName,
+  const id = crypto.randomUUID();
+  const now = new Date().toISOString();
+
+  const { error } = await supabase.from("dice_rolls").insert({
+    id,
+    campaign_id: member.campaignId,
+    roller_user_id: user.email,
+    roller_name: user.displayName,
     visibility,
-    diceSides,
-    diceCount,
+    dice_sides: diceSides,
+    dice_count: diceCount,
     modifier,
-    resultsJson: JSON.stringify(results),
+    results_json: JSON.stringify(results),
     total,
-    createdAt: new Date().toISOString(),
-  };
+    created_at: now,
+  });
 
-  await env.DB.prepare(
-    `INSERT INTO dice_rolls
-      (id, campaign_id, roller_user_id, roller_name, visibility, dice_sides,
-       dice_count, modifier, results_json, total, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-  ).bind(
-    roll.id,
-    member.id,
-    roll.rollerUserId,
-    roll.rollerName,
-    roll.visibility,
-    roll.diceSides,
-    roll.diceCount,
-    roll.modifier,
-    roll.resultsJson,
-    roll.total,
-    roll.createdAt,
-  ).run();
+  if (error) return Response.json({ error: "Não foi possível registrar a rolagem." }, { status: 500 });
 
-  return Response.json({ roll: toRoll(roll) }, { status: 201 });
+  return Response.json({ roll: toRoll({
+    id, rollerUserId: user.email, rollerName: user.displayName, visibility,
+    diceSides, diceCount, modifier, resultsJson: JSON.stringify(results), total, createdAt: now,
+  }) }, { status: 201 });
 }

@@ -4,6 +4,7 @@ import { startTransition, useCallback, useEffect, useRef, useState } from "react
 import { CameraProvider, CameraWorkspace, CharacterCamera } from "./CameraSystem";
 import { getNimbleLayout, NIMBLE_LAYOUTS, type NimbleLayoutDefinition, type NimbleLayoutId } from "./nimbleLayouts";
 import { ShieldWorkspace } from "./ShieldWorkspace";
+import { createBrowserClient } from "@/lib/supabase";
 
 type User = { id: string; displayName: string; username: string };
 type Role = "master" | "player";
@@ -182,7 +183,7 @@ export default function RpgNexusApp({ initialUser }: { initialUser: User | null 
   const [saveState, setSaveState] = useState<SaveState>("saved");
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const activeFieldRef = useRef<string | null>(null);
-  const saveTimers = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
+  const saveTimers = useRef<Record<string, number | NodeJS.Timeout>>({});
   const dirtyFieldsRef = useRef<Record<string, string>>({});
   const queuedFieldValuesRef = useRef<Record<string, string>>({});
   const savingFieldsRef = useRef<Set<string>>(new Set());
@@ -201,7 +202,7 @@ export default function RpgNexusApp({ initialUser }: { initialUser: User | null 
   const revealSendingRef = useRef(false);
   const revealQueuedRef = useRef<number | null>(null);
   const revealOptimisticRef = useRef<number | null>(null);
-  const revealReleaseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const revealReleaseTimerRef = useRef<number | NodeJS.Timeout | null>(null);
   const scenePreloadRef = useRef<HTMLImageElement | null>(null);
 
   const loadCampaigns = useCallback(async () => {
@@ -658,16 +659,11 @@ export default function RpgNexusApp({ initialUser }: { initialUser: User | null 
     window.setTimeout(() => setNotice(""), 2800);
   };
 
-  const authenticate = (authenticatedUser: User) => {
-    setUser(authenticatedUser);
-    setCampaigns([]);
-    setRoom(null);
-    setNotice("");
-    setLoading(true);
-  };
-
   const logout = async () => {
-    try { await fetch("/api/auth/logout", { method: "POST" }); } catch { /* Clear the local view even if the network is unavailable. */ }
+    try {
+      const supabase = createBrowserClient();
+      await supabase.auth.signOut();
+    } catch { /* Clear the local view even if the network is unavailable. */ }
     roomCodeRef.current = null;
     selectedCharacterRef.current = null;
     dirtyFieldsRef.current = {};
@@ -687,7 +683,7 @@ export default function RpgNexusApp({ initialUser }: { initialUser: User | null 
     setUser(null);
   };
 
-  if (!user) return <BasicAuth onAuthenticated={authenticate} />;
+  if (!user) return null;
 
   if (!room) {
     return (
@@ -769,7 +765,7 @@ export default function RpgNexusApp({ initialUser }: { initialUser: User | null 
   };
 
   return (
-    <CameraProvider campaignCode={room.campaign.code} user={{ id: user.id, displayName: user.displayName }} role={room.campaign.role} activeView={roomView}>
+    <CameraProvider campaignCode={room.campaign.code} user={{ id: user.id, displayName: user.displayName }} role={room.campaign.role}>
     <main className="room-page">
       <header className="room-header">
         <button className="room-brand" onClick={leaveRoom}><span className="brand-mark small">N</span><span>RPG NEXUS</span></button>
@@ -1212,73 +1208,6 @@ function ShadowmancerSheet({ fallbackName, layout, fields, onChange, onFocus, ed
 
 function AppHeader({ user, onLogout }: { user: User; onLogout: () => void }) {
   return <header className="app-header"><div className="brand-lockup"><span className="brand-mark small">N</span><span>RPG NEXUS</span></div><div className="header-user"><span className="avatar self">{initials(user.displayName)}</span><div><strong>{user.displayName}</strong><small>@{user.username}</small></div><button onClick={onLogout} title="Sair" aria-label="Sair da conta">↗</button></div></header>;
-}
-
-function BasicAuth({ onAuthenticated }: { onAuthenticated: (user: User) => void }) {
-  const [mode, setMode] = useState<"login" | "register">("login");
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState("");
-
-  const changeMode = (nextMode: "login" | "register") => {
-    setMode(nextMode);
-    setError("");
-  };
-
-  const submit = async (event: React.FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    const form = new FormData(event.currentTarget);
-    const password = String(form.get("password") ?? "");
-    if (mode === "register" && password !== String(form.get("passwordConfirm") ?? "")) {
-      setError("As duas senhas precisam ser iguais.");
-      return;
-    }
-    setBusy(true);
-    setError("");
-    try {
-      const payload = mode === "register"
-        ? { displayName: form.get("displayName"), username: form.get("username"), password }
-        : { username: form.get("username"), password };
-      const data = await readJson<{ user: User }>(await fetch(`/api/auth/${mode === "register" ? "register" : "login"}`, {
-        method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(payload),
-      }));
-      onAuthenticated(data.user);
-    } catch (authError) {
-      setError(authError instanceof Error ? authError.message : "Não foi possível entrar.");
-    } finally { setBusy(false); }
-  };
-
-  return (
-    <main className="login-page basic-login-page">
-      <div className="login-orbit login-orbit-one" />
-      <div className="login-orbit login-orbit-two" />
-      <section className="basic-auth-card" aria-labelledby="auth-title">
-        <div className="auth-brand">
-          <div className="brand-lockup"><span className="brand-mark">N</span><span>RPG NEXUS</span></div>
-          <p className="eyebrow">Mesa virtual colaborativa</p>
-          <h1 id="auth-title">{mode === "login" ? "Bem-vindo de volta." : "Crie sua conta."}</h1>
-          <p>{mode === "login" ? "Entre com seu usuário e senha para acessar suas campanhas." : "Escolha um nick para aparecer na mesa e crie seus dados de acesso."}</p>
-        </div>
-
-        <div className="auth-tabs" role="tablist" aria-label="Acesso à conta">
-          <button type="button" role="tab" aria-selected={mode === "login"} className={mode === "login" ? "active" : ""} onClick={() => changeMode("login")}>Entrar</button>
-          <button type="button" role="tab" aria-selected={mode === "register"} className={mode === "register" ? "active" : ""} onClick={() => changeMode("register")}>Criar conta</button>
-        </div>
-
-        <form className="auth-form" onSubmit={(event) => void submit(event)}>
-          {mode === "register" && <label className="auth-field"><span>Nick na mesa</span><input name="displayName" required minLength={2} maxLength={30} autoComplete="nickname" placeholder="Ex.: Paparoxo" /></label>}
-          <label className="auth-field"><span>Usuário</span><input name="username" required minLength={3} maxLength={24} autoCapitalize="none" autoCorrect="off" autoComplete="username" placeholder="seu_usuario" /></label>
-          <label className="auth-field"><span>Senha</span><input name="password" type="password" required minLength={6} maxLength={128} autoComplete={mode === "login" ? "current-password" : "new-password"} placeholder="Mínimo de 6 caracteres" /></label>
-          {mode === "register" && <label className="auth-field"><span>Confirmar senha</span><input name="passwordConfirm" type="password" required minLength={6} maxLength={128} autoComplete="new-password" placeholder="Repita sua senha" /></label>}
-          {error && <div className="auth-error" role="alert">{error}</div>}
-          <button className="primary-button auth-submit" disabled={busy}>{busy ? "Aguarde..." : mode === "login" ? "Entrar" : "Criar conta"}<span aria-hidden="true">→</span></button>
-        </form>
-
-        <p className="auth-switch">{mode === "login" ? "Ainda não tem uma conta?" : "Já possui uma conta?"}<button type="button" onClick={() => changeMode(mode === "login" ? "register" : "login")}>{mode === "login" ? "Criar agora" : "Entrar"}</button></p>
-        <div className="auth-security"><i className="status-dot" /><span>Seus dados ficam protegidos e sua sessão permanece conectada neste dispositivo.</span></div>
-      </section>
-      <p className="login-note">RPG Nexus · Uma ficha viva para toda a mesa.</p>
-    </main>
-  );
 }
 
 function SheetField({ id, label, hint, value = "", onChange, onFocus, editor, compact = false, multiline = false }: {

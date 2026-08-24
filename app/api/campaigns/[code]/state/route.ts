@@ -1,5 +1,4 @@
-import { env } from "cloudflare:workers";
-import { getAuthUser } from "../../../../auth";
+import { requireUser, db } from "@/lib/api-helpers";
 
 export const dynamic = "force-dynamic";
 
@@ -14,8 +13,8 @@ const ALLOWED_FIELDS = new Set([
 ]);
 
 export async function PATCH(request: Request, context: Context) {
-  const user = await getAuthUser(request);
-  if (!user) return Response.json({ error: "Entre para continuar." }, { status: 401 });
+  const user = await requireUser();
+  if (!user || !user.email) return Response.json({ error: "Entre para continuar." }, { status: 401 });
 
   const { code: rawCode } = await context.params;
   const payload = (await request.json()) as { field?: string; value?: unknown };
@@ -23,28 +22,34 @@ export async function PATCH(request: Request, context: Context) {
   const value = typeof payload.value === "string" ? payload.value.slice(0, 12000) : String(payload.value ?? "");
   if (!ALLOWED_FIELDS.has(field)) return Response.json({ error: "Campo inválido." }, { status: 400 });
 
-  const membership = await env.DB.prepare(
-    `SELECT c.id FROM campaigns c
-      JOIN campaign_members m ON m.campaign_id = c.id
-     WHERE c.code = ? AND m.email = ?`,
-  ).bind(rawCode.toUpperCase(), user.id).first<{ id: string }>();
-  if (!membership) return Response.json({ error: "Acesso negado." }, { status: 403 });
+  const supabase = db();
+  const { data: membership, error: meError } = await supabase
+    .from("campaigns")
+    .select("id, campaign_members!inner(role)")
+    .eq("code", rawCode.toUpperCase())
+    .eq("campaign_members.email", user.email)
+    .single();
+  if (meError || !membership) return Response.json({ error: "Acesso negado." }, { status: 403 });
 
+  const campaignId = membership.id as string;
   const now = new Date().toISOString();
-  const results = await env.DB.batch([
-    env.DB.prepare(
-      `INSERT INTO sheet_fields
-        (campaign_id, field_key, field_value, updated_by, updated_by_name, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?)
-       ON CONFLICT(campaign_id, field_key) DO UPDATE SET
-         field_value = excluded.field_value,
-         updated_by = excluded.updated_by,
-         updated_by_name = excluded.updated_by_name,
-         updated_at = excluded.updated_at`,
-    ).bind(membership.id, field, value, user.id, user.displayName, now),
-    env.DB.prepare("UPDATE campaigns SET version = version + 1, updated_at = ? WHERE id = ?")
-      .bind(now, membership.id),
-  ]);
 
-  return Response.json({ ok: true, changes: results.length, updatedAt: now });
+  const { error: fieldError } = await supabase.from("sheet_fields").upsert({
+    campaign_id: campaignId,
+    field_key: field,
+    field_value: value,
+    updated_by: user.email,
+    updated_by_name: user.displayName,
+    updated_at: now,
+  });
+  if (fieldError) return Response.json({ error: "Não foi possível salvar o campo." }, { status: 500 });
+
+  const { data: current } = await supabase.from("campaigns").select("version").eq("id", campaignId).single();
+  const { error: verError } = await supabase
+    .from("campaigns")
+    .update({ version: (current?.version ?? 0) + 1, updated_at: now })
+    .eq("id", campaignId);
+  if (verError) return Response.json({ error: "Não foi possível atualizar a campanha." }, { status: 500 });
+
+  return Response.json({ ok: true, changes: 1, updatedAt: now });
 }

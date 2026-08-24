@@ -1,5 +1,4 @@
-import { env } from "cloudflare:workers";
-import { getAuthUser } from "../../../auth";
+import { requireUser, db } from "@/lib/api-helpers";
 
 export const dynamic = "force-dynamic";
 
@@ -25,53 +24,95 @@ type Character = {
 };
 
 export async function GET(request: Request, context: Context) {
-  const user = await getAuthUser(request);
-  if (!user) return Response.json({ error: "Entre para continuar." }, { status: 401 });
+  const user = await requireUser();
+  if (!user || !user.email) return Response.json({ error: "Entre para continuar." }, { status: 401 });
 
+  const supabase = db();
   const { code: rawCode } = await context.params;
-  const campaign = await env.DB.prepare(
-    `SELECT c.id, c.code, c.name, c.system, c.master_name AS masterName,
-            c.version, c.updated_at AS updatedAt, m.role
-       FROM campaigns c
-       JOIN campaign_members m ON m.campaign_id = c.id
-      WHERE c.code = ? AND m.email = ?`,
-  ).bind(rawCode.toUpperCase(), user.id).first<Campaign>();
+  const code = rawCode.toUpperCase();
 
-  if (!campaign) {
+  const { data: campaignData, error: campaignError } = await supabase
+    .from("campaigns")
+    .select("id, code, name, system, master_name, version, updated_at, campaign_members!inner(role)")
+    .eq("code", code)
+    .eq("campaign_members.email", user.email)
+    .single();
+
+  if (campaignError || !campaignData) {
     return Response.json({ error: "Você não participa desta campanha." }, { status: 403 });
   }
 
+  const campaign: Campaign = {
+    id: campaignData.id,
+    code: campaignData.code,
+    name: campaignData.name,
+    system: campaignData.system,
+    masterName: campaignData.master_name,
+    version: campaignData.version,
+    role: (campaignData.campaign_members as any[])[0].role,
+    updatedAt: campaignData.updated_at,
+  };
+
   const cutoff = new Date(Date.now() - 18_000).toISOString();
-  const [characterRows, memberRows, presenceRows] = await Promise.all([
-    env.DB.prepare(
-      `SELECT ch.id, ch.name, ch.assigned_user_id AS assignedUserId,
-              cm.display_name AS assignedDisplayName, ch.updated_at AS updatedAt
-         FROM characters ch
-         LEFT JOIN campaign_members cm
-           ON cm.campaign_id = ch.campaign_id AND cm.email = ch.assigned_user_id
-        WHERE ch.campaign_id = ?
-          AND (? = 'master' OR ch.assigned_user_id = ?)
-        ORDER BY ch.created_at ASC`,
-    ).bind(campaign.id, campaign.role, user.id).all<Character>(),
-    env.DB.prepare(
-      `SELECT email, display_name AS displayName, role
-         FROM campaign_members WHERE campaign_id = ?
-         ORDER BY CASE role WHEN 'master' THEN 0 ELSE 1 END, joined_at`,
-    ).bind(campaign.id).all<{ email: string; displayName: string; role: "master" | "player" }>(),
-    env.DB.prepare(
-      `SELECT email, display_name AS displayName, role, color,
-              cursor_x AS cursorX, cursor_y AS cursorY,
-              editing_field AS editingField, active_at AS activeAt
-         FROM presence
-        WHERE campaign_id = ? AND active_at >= ?`,
-    ).bind(campaign.id, cutoff).all(),
-  ]);
+
+  const charactersQuery = supabase
+    .from("characters")
+    .select("id, name, assigned_user_id, updated_at, campaign_members(display_name)")
+    .eq("campaign_id", campaign.id)
+    .order("created_at", { ascending: true });
+
+  if (campaign.role !== "master") charactersQuery.eq("assigned_user_id", user.email);
+
+  const { data: charactersData } = await charactersQuery;
+
+  const characters: Character[] = (charactersData || []).map((ch: any) => ({
+    id: ch.id,
+    name: ch.name,
+    assignedUserId: ch.assigned_user_id,
+    assignedDisplayName: ch.campaign_members?.[0]?.display_name || null,
+    updatedAt: ch.updated_at,
+  }));
+
+  const { data: membersData } = await supabase
+    .from("campaign_members")
+    .select("email, display_name, role")
+    .eq("campaign_id", campaign.id)
+    .order("joined_at", { ascending: true });
+
+  const members = (membersData || []).map((m: any) => ({
+    email: m.email,
+    displayName: m.display_name,
+    role: m.role as "master" | "player",
+  }));
+
+  members.sort((a, b) => {
+    if (a.role === "master" && b.role !== "master") return -1;
+    if (a.role !== "master" && b.role === "master") return 1;
+    return 0;
+  });
+
+  const { data: presenceData } = await supabase
+    .from("presence")
+    .select("email, display_name, role, color, cursor_x, cursor_y, editing_field, active_at")
+    .eq("campaign_id", campaign.id)
+    .gte("active_at", cutoff);
+
+  const presence = (presenceData || []).map((p: any) => ({
+    email: p.email,
+    displayName: p.display_name,
+    role: p.role,
+    color: p.color,
+    cursorX: p.cursor_x,
+    cursorY: p.cursor_y,
+    editingField: p.editing_field,
+    activeAt: p.active_at,
+  }));
 
   return Response.json({
     campaign,
-    characters: characterRows.results ?? [],
-    members: memberRows.results ?? [],
-    presence: presenceRows.results ?? [],
-    viewerEmail: user.id,
+    characters,
+    members,
+    presence,
+    viewerEmail: user.email,
   });
 }

@@ -1,5 +1,4 @@
-import { env } from "cloudflare:workers";
-import { getAuthUser } from "../../../../auth";
+import { requireUser, db } from "@/lib/api-helpers";
 
 export const dynamic = "force-dynamic";
 
@@ -16,69 +15,76 @@ function unit(value: unknown) {
   return typeof value === "number" && Number.isFinite(value) ? Math.max(0, Math.min(1, value)) : null;
 }
 
+async function getMembershipId(supabase: any, code: string, email: string) {
+  const { data } = await supabase
+    .from("campaigns")
+    .select("id, campaign_members!inner(role)")
+    .eq("code", code.toUpperCase())
+    .eq("campaign_members.email", email)
+    .single();
+  if (!data) return null;
+  return { campaignId: data.id as string, role: (data.campaign_members as any[])[0].role as "master" | "player" };
+}
+
 export async function GET(request: Request, context: Context) {
-  const user = await getAuthUser(request);
-  if (!user) return Response.json({ error: "Entre para continuar." }, { status: 401 });
+  const user = await requireUser();
+  if (!user || !user.email) return Response.json({ error: "Entre para continuar." }, { status: 401 });
 
   const { code: rawCode } = await context.params;
-  const campaign = await env.DB.prepare(
-    `SELECT c.id FROM campaigns c
-      JOIN campaign_members m ON m.campaign_id = c.id
-     WHERE c.code = ? AND m.email = ?`,
-  ).bind(rawCode.toUpperCase(), user.id).first<{ id: string }>();
-  if (!campaign) return Response.json({ error: "Acesso negado." }, { status: 403 });
+  const supabase = db();
+  const member = await getMembershipId(supabase, rawCode, user.email);
+  if (!member) return Response.json({ error: "Acesso negado." }, { status: 403 });
 
   const cutoff = new Date(Date.now() - 18_000).toISOString();
-  const rows = await env.DB.prepare(
-    `SELECT email, display_name AS displayName, role, color,
-            cursor_x AS cursorX, cursor_y AS cursorY,
-            editing_field AS editingField, active_at AS activeAt
-       FROM presence
-      WHERE campaign_id = ? AND active_at >= ?
-      ORDER BY email`,
-  ).bind(campaign.id, cutoff).all();
+  const { data: rows, error } = await supabase
+    .from("presence")
+    .select("email, display_name, role, color, cursor_x, cursor_y, editing_field, active_at")
+    .eq("campaign_id", member.campaignId)
+    .gte("active_at", cutoff)
+    .order("email", { ascending: true });
 
-  return Response.json({ presence: rows.results ?? [] });
+  if (error) return Response.json({ error: "Não foi possível carregar a presença." }, { status: 500 });
+
+  return Response.json({
+    presence: (rows || []).map((p: any) => ({
+      email: p.email,
+      displayName: p.display_name,
+      role: p.role,
+      color: p.color,
+      cursorX: p.cursor_x,
+      cursorY: p.cursor_y,
+      editingField: p.editing_field,
+      activeAt: p.active_at,
+    })),
+  });
 }
 
 export async function POST(request: Request, context: Context) {
-  const user = await getAuthUser(request);
-  if (!user) return Response.json({ error: "Entre para continuar." }, { status: 401 });
+  const user = await requireUser();
+  if (!user || !user.email) return Response.json({ error: "Entre para continuar." }, { status: 401 });
 
   const { code: rawCode } = await context.params;
   const payload = (await request.json()) as { cursorX?: number; cursorY?: number; editingField?: string | null };
-  const member = await env.DB.prepare(
-    `SELECT c.id, m.role FROM campaigns c
-      JOIN campaign_members m ON m.campaign_id = c.id
-     WHERE c.code = ? AND m.email = ?`,
-  ).bind(rawCode.toUpperCase(), user.id).first<{ id: string; role: "master" | "player" }>();
+  const supabase = db();
+  const member = await getMembershipId(supabase, rawCode, user.email);
   if (!member) return Response.json({ error: "Acesso negado." }, { status: 403 });
 
   const editingField = typeof payload.editingField === "string" ? payload.editingField.slice(0, 80) : null;
   const now = new Date().toISOString();
-  await env.DB.prepare(
-    `INSERT INTO presence
-      (campaign_id, email, display_name, role, color, cursor_x, cursor_y, editing_field, active_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-     ON CONFLICT(campaign_id, email) DO UPDATE SET
-       display_name = excluded.display_name,
-       role = excluded.role,
-       color = excluded.color,
-       cursor_x = excluded.cursor_x,
-       cursor_y = excluded.cursor_y,
-       editing_field = excluded.editing_field,
-       active_at = excluded.active_at`,
-  ).bind(
-    member.id,
-    user.id,
-    user.displayName,
-    member.role,
-    colorFor(user.id),
-    unit(payload.cursorX),
-    unit(payload.cursorY),
-    editingField,
-    now,
-  ).run();
+
+  const { error } = await supabase.from("presence").upsert({
+    campaign_id: member.campaignId,
+    email: user.email,
+    display_name: user.displayName,
+    role: member.role,
+    color: colorFor(user.email),
+    cursor_x: unit(payload.cursorX),
+    cursor_y: unit(payload.cursorY),
+    editing_field: editingField,
+    active_at: now,
+  });
+
+  if (error) return Response.json({ error: "Não foi possível atualizar a presença." }, { status: 500 });
 
   return Response.json({ ok: true });
 }

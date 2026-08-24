@@ -1,30 +1,46 @@
-import { env } from "cloudflare:workers";
-import { getAuthUser } from "../../../../../auth";
+import { requireUser, db } from "@/lib/api-helpers";
+import { getSceneImageStream } from "@/lib/storage";
 
 export const dynamic = "force-dynamic";
 
 type Context = { params: Promise<{ code: string }> };
 
-export async function GET(request: Request, context: Context) {
-  const user = await getAuthUser(request);
-  if (!user) return Response.json({ error: "Entre para continuar." }, { status: 401 });
-  const { code } = await context.params;
-  const scene = await env.DB.prepare(
-    `SELECT s.image_key AS imageKey, s.image_name AS imageName, s.content_type AS contentType
-       FROM campaigns c
-       JOIN campaign_members m ON m.campaign_id = c.id AND m.email = ?
-       JOIN campaign_scenes s ON s.campaign_id = c.id
-      WHERE c.code = ?`,
-  ).bind(user.id, code.toUpperCase()).first<{ imageKey: string; imageName: string; contentType: string }>();
-  if (!scene) return Response.json({ error: "Cena não encontrada." }, { status: 404 });
+async function getMembershipId(supabase: any, code: string, email: string) {
+  const { data } = await supabase
+    .from("campaigns")
+    .select("id, campaign_members!inner(role)")
+    .eq("code", code.toUpperCase())
+    .eq("campaign_members.email", email)
+    .single();
+  if (!data) return null;
+  return { campaignId: data.id as string, role: (data.campaign_members as any[])[0].role as "master" | "player" };
+}
 
-  const object = await env.BUCKET.get(scene.imageKey);
-  if (!object) return Response.json({ error: "Imagem não encontrada." }, { status: 404 });
+export async function GET(request: Request, context: Context) {
+  const user = await requireUser();
+  if (!user || !user.email) return Response.json({ error: "Entre para continuar." }, { status: 401 });
+  const { code } = await context.params;
+  const supabase = db();
+  const member = await getMembershipId(supabase, code, user.email);
+  if (!member) return Response.json({ error: "Acesso negado." }, { status: 403 });
+
+  const { data: scene } = await supabase
+    .from("campaign_scenes")
+    .select("image_key, image_name, content_type")
+    .eq("campaign_id", member.campaignId)
+    .single();
+  if (!scene?.image_key) return Response.json({ error: "Cena não encontrada." }, { status: 404 });
+
+  let blob: Blob;
+  try {
+    blob = await getSceneImageStream(scene.image_key);
+  } catch {
+    return Response.json({ error: "Imagem não encontrada." }, { status: 404 });
+  }
+
   const headers = new Headers();
-  object.writeHttpMetadata(headers);
-  headers.set("content-type", scene.contentType);
+  headers.set("content-type", scene.content_type);
   headers.set("cache-control", "private, max-age=31536000, immutable");
-  headers.set("etag", object.httpEtag);
-  headers.set("content-disposition", `inline; filename*=UTF-8''${encodeURIComponent(scene.imageName)}`);
-  return new Response(object.body, { headers });
+  headers.set("content-disposition", `inline; filename*=UTF-8''${encodeURIComponent(scene.image_name)}`);
+  return new Response(blob, { headers });
 }

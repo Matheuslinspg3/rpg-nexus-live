@@ -1,5 +1,4 @@
-import { env } from "cloudflare:workers";
-import { getAuthUser } from "../../auth";
+import { requireUser, db } from "@/lib/api-helpers";
 
 export const dynamic = "force-dynamic";
 
@@ -30,30 +29,47 @@ function errorMessage(error: unknown) {
   return message.includes("no such table") ? "O banco da campanha ainda não foi preparado." : message;
 }
 
-export async function GET(request: Request) {
-  const user = await getAuthUser(request);
+export async function GET() {
+  const user = await requireUser();
   if (!user) return Response.json({ error: "Entre para continuar." }, { status: 401 });
 
   try {
-    const result = await env.DB.prepare(
-      `SELECT c.id, c.code, c.name, c.system, c.master_name AS masterName,
-              m.role,
-              (SELECT COUNT(*) FROM campaign_members cm WHERE cm.campaign_id = c.id) AS memberCount,
-              c.updated_at AS updatedAt
-         FROM campaigns c
-         JOIN campaign_members m ON m.campaign_id = c.id
-        WHERE m.email = ?
-        ORDER BY c.updated_at DESC`,
-    ).bind(user.id).all<CampaignRow>();
+    const supabase = db();
+    const { data, error } = await supabase
+      .from("campaigns")
+      .select("id, code, name, system, master_name, updated_at, campaign_members!inner(role)")
+      .eq("campaign_members.email", user.email)
+      .order("updated_at", { ascending: false });
 
-    return Response.json({ campaigns: result.results ?? [] });
+    if (error) throw error;
+
+    const campaigns: CampaignRow[] = (data || []).map((c: any) => ({
+      id: c.id,
+      code: c.code,
+      name: c.name,
+      system: c.system,
+      masterName: c.master_name,
+      role: (c.campaign_members as any[])?.[0]?.role || "player",
+      memberCount: 0,
+      updatedAt: c.updated_at,
+    }));
+
+    if (campaigns.length) {
+      const ids = campaigns.map((c) => c.id);
+      const { data: mc } = await supabase.from("campaign_members").select("campaign_id").in("campaign_id", ids);
+      const countMap = new Map<string, number>();
+      for (const row of mc || []) countMap.set(row.campaign_id, (countMap.get(row.campaign_id) || 0) + 1);
+      for (const c of campaigns) c.memberCount = countMap.get(c.id) || 0;
+    }
+
+    return Response.json({ campaigns });
   } catch (error) {
     return Response.json({ error: errorMessage(error) }, { status: 500 });
   }
 }
 
 export async function POST(request: Request) {
-  const user = await getAuthUser(request);
+  const user = await requireUser();
   if (!user) return Response.json({ error: "Entre para continuar." }, { status: 401 });
 
   try {
@@ -64,6 +80,7 @@ export async function POST(request: Request) {
       code?: string;
     };
     const now = new Date().toISOString();
+    const supabase = db();
 
     if (payload.action === "create") {
       const name = cleanName(payload.name);
@@ -74,27 +91,23 @@ export async function POST(request: Request) {
       let code = "";
       for (let attempt = 0; attempt < 8; attempt += 1) {
         const candidate = campaignCode();
-        const existing = await env.DB.prepare("SELECT id FROM campaigns WHERE code = ?")
-          .bind(candidate).first();
-        if (!existing) {
-          code = candidate;
-          break;
-        }
+        const { data: existing } = await supabase.from("campaigns").select("id").eq("code", candidate).single();
+        if (!existing) { code = candidate; break; }
       }
       if (!code) throw new Error("Não foi possível gerar um código de campanha.");
 
-      await env.DB.batch([
-        env.DB.prepare(
-          `INSERT INTO campaigns
-            (id, code, name, system, master_email, master_name, version, created_at, updated_at)
-           VALUES (?, ?, ?, ?, ?, ?, 0, ?, ?)`,
-        ).bind(id, code, name, system, user.id, user.displayName, now, now),
-        env.DB.prepare(
-          `INSERT INTO campaign_members
-            (campaign_id, email, display_name, role, joined_at)
-           VALUES (?, ?, ?, 'master', ?)`,
-        ).bind(id, user.id, user.displayName, now),
-      ]);
+      const { error: campaignError } = await supabase.from("campaigns").insert({
+        id, code, name, system,
+        master_email: user.email,
+        master_name: user.displayName,
+        version: 0, created_at: now, updated_at: now,
+      });
+      if (campaignError) throw campaignError;
+
+      const { error: memberError } = await supabase.from("campaign_members").insert({
+        campaign_id: id, email: user.email, display_name: user.displayName, role: "master", joined_at: now,
+      });
+      if (memberError) throw memberError;
 
       return Response.json({ code }, { status: 201 });
     }
@@ -102,20 +115,16 @@ export async function POST(request: Request) {
     if (payload.action === "join") {
       const code = cleanName(payload.code, 8).toUpperCase();
       if (!code) return Response.json({ error: "Informe o código da campanha." }, { status: 400 });
-      const campaign = await env.DB.prepare("SELECT id FROM campaigns WHERE code = ?")
-        .bind(code).first<{ id: string }>();
-      if (!campaign) return Response.json({ error: "Campanha não encontrada. Confira o código." }, { status: 404 });
 
-      const current = await env.DB.prepare(
-        "SELECT role FROM campaign_members WHERE campaign_id = ? AND email = ?",
-      ).bind(campaign.id, user.id).first<{ role: string }>();
+      const { data: campaign, error: campaignError } = await supabase.from("campaigns").select("id").eq("code", code).single();
+      if (campaignError || !campaign) return Response.json({ error: "Campanha não encontrada. Confira o código." }, { status: 404 });
 
+      const { data: current } = await supabase.from("campaign_members").select("role").eq("campaign_id", campaign.id).eq("email", user.email).single();
       if (!current) {
-        await env.DB.prepare(
-          `INSERT INTO campaign_members
-            (campaign_id, email, display_name, role, joined_at)
-           VALUES (?, ?, ?, 'player', ?)`,
-        ).bind(campaign.id, user.id, user.displayName, now).run();
+        const { error: insertError } = await supabase.from("campaign_members").insert({
+          campaign_id: campaign.id, email: user.email, display_name: user.displayName, role: "player", joined_at: now,
+        });
+        if (insertError) throw insertError;
       }
 
       return Response.json({ code });

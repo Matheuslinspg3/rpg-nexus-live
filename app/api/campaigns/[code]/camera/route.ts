@@ -1,54 +1,46 @@
-import { env } from "cloudflare:workers";
-import { getAuthUser } from "../../../../auth";
+import { requireUser, db } from "@/lib/api-helpers";
 
 export const dynamic = "force-dynamic";
 
 type Context = { params: Promise<{ code: string }> };
-type Membership = { id: string; role: "master" | "player" };
 
-async function getMembership(code: string, userId: string) {
-  return env.DB.prepare(
-    `SELECT c.id, m.role FROM campaigns c
-       JOIN campaign_members m ON m.campaign_id = c.id
-      WHERE c.code = ? AND m.email = ?`,
-  ).bind(code.toUpperCase(), userId).first<Membership>();
+async function getMembershipId(supabase: any, code: string, email: string) {
+  const { data } = await supabase
+    .from("campaigns")
+    .select("id, campaign_members!inner(role)")
+    .eq("code", code.toUpperCase())
+    .eq("campaign_members.email", email)
+    .single();
+  if (!data) return null;
+  return { campaignId: data.id as string, role: (data.campaign_members as any[])[0].role as "master" | "player" };
 }
 
 // GET /api/campaigns/:code/camera - Get or create Daily.co room
 export async function GET(request: Request, context: Context) {
-  const user = await getAuthUser(request);
-  if (!user) return Response.json({ error: "Não autenticado." }, { status: 401 });
+  const user = await requireUser();
+  if (!user || !user.email) return Response.json({ error: "Não autenticado." }, { status: 401 });
 
   const { code } = await context.params;
-  const member = await getMembership(code, user.id);
+  const supabase = db();
+  const member = await getMembershipId(supabase, code, user.email);
   if (!member) return Response.json({ error: "Campanha não encontrada." }, { status: 404 });
 
-  // Check if room already exists in DB
-  const existing = await env.DB.prepare(
-    `SELECT room_url as roomUrl, room_name as roomName 
-     FROM camera_rooms 
-     WHERE campaign_id = ?`,
-  ).bind(member.id).first<{ roomUrl: string; roomName: string }>();
+  const { data: existing } = await supabase
+    .from("camera_rooms")
+    .select("room_url")
+    .eq("campaign_id", member.campaignId)
+    .single();
 
-  if (existing) {
-    return Response.json({ roomUrl: existing.roomUrl });
-  }
+  if (existing?.room_url) return Response.json({ roomUrl: existing.room_url });
 
-  // Create new Daily.co room
-  const dailyApiKey = env.DAILY_API_KEY;
-  if (!dailyApiKey) {
-    return Response.json({ error: "Daily.co API key not configured." }, { status: 500 });
-  }
+  const dailyApiKey = process.env.DAILY_API_KEY;
+  if (!dailyApiKey) return Response.json({ error: "Daily.co API key not configured." }, { status: 500 });
 
-  const roomName = `rpg-nexus-${member.id}`;
-  
+  const roomName = `rpg-nexus-${member.campaignId}`;
   try {
     const response = await fetch("https://api.daily.co/v1/rooms", {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "Authorization": `Bearer ${dailyApiKey}`,
-      },
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${dailyApiKey}` },
       body: JSON.stringify({
         name: roomName,
         privacy: "private",
@@ -69,13 +61,14 @@ export async function GET(request: Request, context: Context) {
       return Response.json({ error: "Failed to create room." }, { status: 500 });
     }
 
-    const room = await response.json() as { url: string; name: string };
-
-    // Save to database
-    await env.DB.prepare(
-      `INSERT INTO camera_rooms (campaign_id, room_url, room_name, created_at)
-       VALUES (?, ?, ?, ?)`,
-    ).bind(member.id, room.url, room.name, new Date().toISOString()).run();
+    const room = (await response.json()) as { url: string; name: string };
+    const { error: insertError } = await supabase.from("camera_rooms").insert({
+      campaign_id: member.campaignId,
+      room_url: room.url,
+      room_name: room.name,
+      created_at: new Date().toISOString(),
+    });
+    if (insertError) return Response.json({ error: "Falha ao salvar a sala." }, { status: 500 });
 
     return Response.json({ roomUrl: room.url });
   } catch (error) {
