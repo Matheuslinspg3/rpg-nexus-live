@@ -13,7 +13,6 @@ const isCodexSeatbeltSandbox = process.env.CODEX_SANDBOX === "seatbelt";
 
 const localBindingConfig = {
   main: "./worker/index.ts",
-  compatibility_flags: ["nodejs_compat"],
   // Only add bindings for local development, not for production builds
   ...(process.env.NODE_ENV !== "production" && d1
     ? {
