@@ -232,3 +232,52 @@ export function PlayerCamera() {
     </div>
   );
 }
+
+// Workspace camera view (for scene view)
+export function CameraWorkspace() {
+  const { states, localStream, isLoading, error, enableCamera, disableCamera } = useCamera();
+
+  const allStates = [
+    ...(localStream
+      ? [{ userId: "self", displayName: "Você", isActive: true, stream: localStream }]
+      : []),
+    ...states.filter((s) => s.userId !== "self"),
+  ];
+
+  return (
+    <div className="workspace-cameras">
+      <div className="workspace-cameras-header">
+        <h3>Câmeras ({allStates.filter((s) => s.isActive).length})</h3>
+        {localStream ? (
+          <button onClick={disableCamera}>Desligar</button>
+        ) : (
+          <button disabled={isLoading} onClick={() => void enableCamera()}>
+            {isLoading ? "..." : "Ligar"}
+          </button>
+        )}
+      </div>
+      {error && <p className="camera-error">{error}</p>}
+      <div className="workspace-cameras-grid">
+        {allStates.map((state) => (
+          <VideoTile key={state.userId} state={state} isSelf={state.userId === "self"} />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// Character camera (for sheet toolbar)
+export function CharacterCamera({ userId, name }: { userId: string | null; name: string }) {
+  const { states } = useCamera();
+
+  if (!userId) return null;
+
+  const state = states.find((s) => s.userId === userId);
+  if (!state?.isActive && !state?.stream) return null;
+
+  return (
+    <div className="character-camera-mini">
+      <VideoTile state={state} isSelf={false} />
+    </div>
+  );
+}
