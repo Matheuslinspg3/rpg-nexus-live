@@ -43,6 +43,13 @@
       "when": 1787200168429,
       "tag": "0005_dizzy_quasimodo",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "6",
+      "when": 1787220000000,
+      "tag": "0006_camera_system_refactor",
+      "breakpoints": true
     }
   ]
 }

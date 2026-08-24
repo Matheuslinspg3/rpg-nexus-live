@@ -63,38 +63,20 @@ export const diceRolls = sqliteTable(
   (table) => [index("dice_rolls_campaign_created_idx").on(table.campaignId, table.createdAt)],
 );
 
-export const cameraSessions = sqliteTable(
-  "camera_sessions",
+// Simplified camera system - stores only active camera states
+export const cameraStates = sqliteTable(
+  "camera_states",
   {
     campaignId: text("campaign_id").notNull().references(() => campaigns.id, { onDelete: "cascade" }),
     userId: text("user_id").notNull(),
-    sessionId: text("session_id").notNull(),
     displayName: text("display_name").notNull(),
-    role: text("role", { enum: ["master", "player"] }).notNull(),
-    cameraEnabled: integer("camera_enabled", { mode: "boolean" }).notNull().default(false),
+    isActive: integer("is_active", { mode: "boolean" }).notNull().default(false),
     updatedAt: text("updated_at").notNull(),
   },
   (table) => [
     primaryKey({ columns: [table.campaignId, table.userId] }),
-    index("camera_sessions_campaign_updated_idx").on(table.campaignId, table.updatedAt),
+    index("camera_states_campaign_active_idx").on(table.campaignId, table.isActive, table.updatedAt),
   ],
-);
-
-export const cameraSignals = sqliteTable(
-  "camera_signals",
-  {
-    id: text("id").primaryKey(),
-    campaignId: text("campaign_id").notNull().references(() => campaigns.id, { onDelete: "cascade" }),
-    fromUserId: text("from_user_id").notNull(),
-    fromName: text("from_name").notNull(),
-    fromSessionId: text("from_session_id").notNull(),
-    toUserId: text("to_user_id").notNull(),
-    toSessionId: text("to_session_id").notNull(),
-    signalType: text("signal_type", { enum: ["offer", "answer", "candidate"] }).notNull(),
-    payload: text("payload").notNull(),
-    createdAt: text("created_at").notNull(),
-  },
-  (table) => [index("camera_signals_recipient_idx").on(table.campaignId, table.toUserId, table.toSessionId, table.createdAt)],
 );
 
 export const shieldLayouts = sqliteTable(
