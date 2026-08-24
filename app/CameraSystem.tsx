@@ -169,7 +169,6 @@ export function CameraProvider({
   const localStreamRef = useRef<MediaStream | null>(null);
   const peerManagerRef = useRef<SimplePeerManager>(new SimplePeerManager());
   const pollingRef = useRef<number>(0);
-  const signalingChannelRef = useRef<BroadcastChannel | null>(null);
 
   // Handle incoming remote streams
   useEffect(() => {
@@ -182,28 +181,43 @@ export function CameraProvider({
     });
   }, []);
 
-  // Simple signaling via BroadcastChannel (works in same browser, different tabs)
+  // Simple signaling via server
   useEffect(() => {
-    const channel = new BroadcastChannel(`camera-${campaignCode}`);
-    signalingChannelRef.current = channel;
+    const pollSignals = async () => {
+      try {
+        const response = await fetch(`/api/campaigns/${campaignCode}/camera`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ action: "poll" }),
+        });
 
-    channel.onmessage = async (event) => {
-      const { type, from, payload } = event.data;
-      
-      if (from === user.id) return; // Ignore own messages
+        if (!response.ok) return;
+        const data = await response.json() as { signals: Array<{ fromUserId: string; signal: any }> };
 
-      if (type === "offer") {
-        const answer = await peerManagerRef.current.acceptConnection(from, payload);
-        channel.postMessage({ type: "answer", from: user.id, to: from, payload: answer });
-      } else if (type === "answer" && event.data.to === user.id) {
-        await peerManagerRef.current.handleAnswer(from, payload);
+        for (const { fromUserId, signal } of data.signals) {
+          if (signal.type === "offer") {
+            const answer = await peerManagerRef.current.acceptConnection(fromUserId, signal.offer);
+            await fetch(`/api/campaigns/${campaignCode}/camera`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                action: "signal",
+                toUserId: fromUserId,
+                signal: { type: "answer", answer },
+              }),
+            });
+          } else if (signal.type === "answer") {
+            await peerManagerRef.current.handleAnswer(fromUserId, signal.answer);
+          }
+        }
+      } catch (error) {
+        console.error("Failed to poll signals:", error);
       }
     };
 
-    return () => {
-      channel.close();
-    };
-  }, [campaignCode, user.id]);
+    const interval = window.setInterval(() => void pollSignals(), 2000);
+    return () => window.clearInterval(interval);
+  }, [campaignCode]);
 
   // Poll camera states
   const pollStates = useCallback(async () => {
@@ -227,12 +241,15 @@ export function CameraProvider({
         for (const state of newStates) {
           if (state.isActive && !current.find(s => s.userId === state.userId)?.stream) {
             // New active peer detected, send offer
-            peerManagerRef.current.connectToPeer(state.userId).then(offer => {
-              signalingChannelRef.current?.postMessage({
-                type: "offer",
-                from: user.id,
-                to: state.userId,
-                payload: offer,
+            peerManagerRef.current.connectToPeer(state.userId).then(async offer => {
+              await fetch(`/api/campaigns/${campaignCode}/camera`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                  action: "signal",
+                  toUserId: state.userId,
+                  signal: { type: "offer", offer },
+                }),
               });
             }).catch(console.error);
           }

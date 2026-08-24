@@ -50,6 +50,13 @@
       "when": 1787220000000,
       "tag": "0006_camera_system_refactor",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "6",
+      "when": 1787221000000,
+      "tag": "0007_add_camera_signals",
+      "breakpoints": true
     }
   ]
 }

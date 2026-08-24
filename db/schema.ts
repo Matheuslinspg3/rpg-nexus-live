@@ -79,6 +79,22 @@ export const cameraStates = sqliteTable(
   ],
 );
 
+// WebRTC signaling messages
+export const cameraSignals = sqliteTable(
+  "camera_signals",
+  {
+    id: text("id").primaryKey(),
+    campaignId: text("campaign_id").notNull().references(() => campaigns.id, { onDelete: "cascade" }),
+    fromUserId: text("from_user_id").notNull(),
+    toUserId: text("to_user_id").notNull(),
+    signal: text("signal").notNull(), // JSON: offer, answer, or ice candidate
+    createdAt: text("created_at").notNull(),
+  },
+  (table) => [
+    index("camera_signals_recipient_idx").on(table.campaignId, table.toUserId, table.createdAt),
+  ],
+);
+
 export const shieldLayouts = sqliteTable(
   "shield_layouts",
   {
