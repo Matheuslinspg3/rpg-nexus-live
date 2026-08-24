@@ -16,6 +16,8 @@
   },
   "dependencies": {
     "@daily-co/daily-js": "^0.92.2",
+    "@supabase/ssr": "^0.12.4",
+    "@supabase/supabase-js": "^2.112.3",
     "drizzle-orm": "0.45.2",
     "next": "16.2.6",
     "react": "19.2.6",
