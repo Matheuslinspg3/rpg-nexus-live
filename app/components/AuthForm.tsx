@@ -1,9 +1,11 @@
 'use client'
 
 import { useState } from 'react'
+import { useRouter } from 'next/navigation'
 import { useAuth } from './AuthProvider'
 
 export function AuthForm() {
+  const router = useRouter()
   const [isLogin, setIsLogin] = useState(true)
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
@@ -21,12 +23,14 @@ export function AuthForm() {
       if (isLogin) {
         const { error } = await signIn(email, password)
         if (error) throw error
+        router.refresh()
       } else {
         if (!username.trim()) {
           throw new Error('Nome de usuário é obrigatório')
         }
         const { error } = await signUp(email, password, username)
         if (error) throw error
+        router.refresh()
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Erro ao autenticar')
