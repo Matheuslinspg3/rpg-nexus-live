@@ -18,6 +18,31 @@ type CameraContextValue = {
 
 const CameraContext = createContext<CameraContextValue | null>(null);
 
+function describeDailyError(event: any) {
+  const detail = [
+    event?.errorMsg,
+    event?.error?.message,
+    event?.error?.msg,
+    event?.error?.type,
+    typeof event?.error === "string" ? event.error : "",
+    event?.type,
+  ].find((value): value is string => typeof value === "string" && value.trim().length > 0);
+
+  const normalized = detail?.toLowerCase() || "";
+  if (/permission|notallowed|device|camera|microphone|getusermedia/.test(normalized)) {
+    return "A câmera ou o microfone foram bloqueados. Libere as permissões do navegador e tente novamente.";
+  }
+  if (/token|auth|access|room|meeting/.test(normalized)) {
+    return "O Daily recusou o acesso à sala. Atualize a página e tente entrar novamente.";
+  }
+  if (/network|websocket|ice|connection|transport/.test(normalized)) {
+    return "Não foi possível alcançar o serviço de vídeo. Verifique sua conexão e tente novamente.";
+  }
+  return detail
+    ? `Não foi possível entrar na chamada Daily (${detail}).`
+    : "Não foi possível entrar na chamada Daily. Tente novamente.";
+}
+
 export function useCamera() {
   const context = useContext(CameraContext);
   if (!context) throw new Error("useCamera must be used within CameraProvider");
@@ -42,6 +67,7 @@ export function CameraProvider({
   const [participants, setParticipants] = useState<Record<string, any>>({});
   const callRef = useRef<DailyCall | null>(null);
   const pendingContainerRef = useRef<HTMLElement | null>(null);
+  const lastDailyErrorRef = useRef<string>("");
 
   const leaveRoom = useCallback(() => {
     const existing = callRef.current || (DailyIframe as any).getCallInstance?.();
@@ -62,6 +88,7 @@ export function CameraProvider({
     if (isJoined || isLoading) return;
     setIsLoading(true);
     setError("");
+    lastDailyErrorRef.current = "";
 
     const targetContainer = container || pendingContainerRef.current;
     if (container) pendingContainerRef.current = container;
@@ -113,7 +140,9 @@ export function CameraProvider({
 
       callObject.on("error", (event: any) => {
         console.error("Daily error:", event);
-        setError(event?.errorMsg || "Erro ao conectar à sala de vídeo.");
+        const message = describeDailyError(event);
+        lastDailyErrorRef.current = message;
+        setError(message);
         setIsLoading(false);
       });
 
@@ -123,12 +152,18 @@ export function CameraProvider({
         userName: user.displayName,
       });
 
+      // Some browsers deliver joined-meeting before the Promise resolves. Updating
+      // state here as well keeps the workspace responsive in both event orders.
+      refreshParticipants();
+      setIsJoined(true);
+
       if (targetContainer) {
         const participants = callObject.participants();
+        setParticipants({ ...participants });
         setParticipantCount(Object.keys(participants).length);
       }
     } catch (err) {
-      const msg = err instanceof Error ? err.message : "Erro ao conectar.";
+      const msg = lastDailyErrorRef.current || (err instanceof Error ? err.message : "Erro ao conectar.");
       if (msg.includes("Duplicate")) {
         setError("Sala já conectada nesta aba. Saia e entre novamente.");
       } else {
