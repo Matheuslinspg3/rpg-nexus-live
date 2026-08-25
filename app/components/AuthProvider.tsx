@@ -10,7 +10,7 @@ import {
   type ReactNode,
 } from 'react'
 import { createBrowserClient } from '@/lib/supabase'
-import type { User } from '@supabase/supabase-js'
+import type { SupabaseClient, User } from '@supabase/supabase-js'
 
 type AuthContextType = {
   user: User | null
@@ -25,10 +25,14 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined)
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null)
   const [loading, setLoading] = useState(true)
-  const supabaseRef = useRef(createBrowserClient())
+  const supabaseRef = useRef<SupabaseClient | null>(null)
+  const getSupabaseClientSideOnly = useCallback(() => {
+    supabaseRef.current ??= createBrowserClient()
+    return supabaseRef.current
+  }, [])
 
   useEffect(() => {
-    const supabase = supabaseRef.current
+    const supabase = getSupabaseClientSideOnly()
 
     // Check active session
     supabase.auth.getSession().then(({ data: { session } }) => {
@@ -44,16 +48,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     })
 
     return () => subscription.unsubscribe()
-  }, [])
+  }, [getSupabaseClientSideOnly])
 
   const signIn = useCallback(async (email: string, password: string) => {
-    const supabase = supabaseRef.current
+    const supabase = getSupabaseClientSideOnly()
     const { error } = await supabase.auth.signInWithPassword({ email, password })
     return { error }
-  }, [])
+  }, [getSupabaseClientSideOnly])
 
   const signUp = useCallback(async (email: string, password: string, username: string) => {
-    const supabase = supabaseRef.current
+    const supabase = getSupabaseClientSideOnly()
     const { error } = await supabase.auth.signUp({
       email,
       password,
@@ -65,12 +69,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       },
     })
     return { error }
-  }, [])
+  }, [getSupabaseClientSideOnly])
 
   const signOut = useCallback(async () => {
-    const supabase = supabaseRef.current
+    const supabase = getSupabaseClientSideOnly()
     await supabase.auth.signOut()
-  }, [])
+  }, [getSupabaseClientSideOnly])
 
   return (
     <AuthContext.Provider value={{ user, loading, signIn, signUp, signOut }}>
