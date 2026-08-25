@@ -8,12 +8,19 @@ type Role = "master" | "player";
 
 type CameraContextValue = {
   isLoading: boolean;
+  isMediaBusy: boolean;
   error: string;
   isJoined: boolean;
+  isCameraOn: boolean;
+  isMicOn: boolean;
+  isScreenSharing: boolean;
   participantCount: number;
   participants: Record<string, any>;
   joinRoom: (container?: HTMLElement | null) => Promise<void>;
   leaveRoom: () => void;
+  toggleCamera: () => Promise<void>;
+  toggleMicrophone: () => Promise<void>;
+  toggleScreenShare: () => Promise<void>;
 };
 
 const CameraContext = createContext<CameraContextValue | null>(null);
@@ -43,6 +50,10 @@ function describeDailyError(event: any) {
     : "Não foi possível entrar na chamada Daily. Tente novamente.";
 }
 
+function isTrackOn(track: any) {
+  return Boolean(track?.persistentTrack && track.state !== "off" && track.state !== "blocked");
+}
+
 export function useCamera() {
   const context = useContext(CameraContext);
   if (!context) throw new Error("useCamera must be used within CameraProvider");
@@ -61,13 +72,18 @@ export function CameraProvider({
   campaignCode: string;
 }) {
   const [isLoading, setIsLoading] = useState(false);
+  const [isMediaBusy, setIsMediaBusy] = useState(false);
   const [error, setError] = useState("");
   const [isJoined, setIsJoined] = useState(false);
+  const [isCameraOn, setIsCameraOn] = useState(false);
+  const [isMicOn, setIsMicOn] = useState(false);
+  const [isScreenSharing, setIsScreenSharing] = useState(false);
   const [participantCount, setParticipantCount] = useState(0);
   const [participants, setParticipants] = useState<Record<string, any>>({});
   const callRef = useRef<DailyCall | null>(null);
   const pendingContainerRef = useRef<HTMLElement | null>(null);
   const lastDailyErrorRef = useRef<string>("");
+  const refreshParticipantsRef = useRef<(() => void) | null>(null);
 
   const leaveRoom = useCallback(() => {
     const existing = callRef.current || (DailyIframe as any).getCallInstance?.();
@@ -79,7 +95,11 @@ export function CameraProvider({
     }
     callRef.current = null;
     pendingContainerRef.current = null;
+    refreshParticipantsRef.current = null;
     setIsJoined(false);
+    setIsCameraOn(false);
+    setIsMicOn(false);
+    setIsScreenSharing(false);
     setParticipantCount(0);
     setParticipants({});
   }, []);
@@ -110,18 +130,23 @@ export function CameraProvider({
       }
 
       const data = await response.json() as { roomUrl: string; token: string };
-
+      // Joining as a spectator does not request camera or microphone permission.
       const callObject = DailyIframe.createCallObject({
-        audioSource: true,
-        videoSource: true,
+        audioSource: false,
+        videoSource: false,
       } as any);
       callRef.current = callObject;
 
       const refreshParticipants = () => {
         const next = { ...callObject.participants() };
+        const localParticipant = Object.values(next).find((participant: any) => participant?.local) as any;
         setParticipants(next);
         setParticipantCount(Object.keys(next).length);
+        setIsCameraOn(isTrackOn(localParticipant?.tracks?.video));
+        setIsMicOn(isTrackOn(localParticipant?.tracks?.audio));
+        setIsScreenSharing(isTrackOn(localParticipant?.tracks?.screenVideo));
       };
+      refreshParticipantsRef.current = refreshParticipants;
 
       callObject.on("joined-meeting", () => {
         setIsJoined(true);
@@ -131,9 +156,14 @@ export function CameraProvider({
       callObject.on("participant-joined", refreshParticipants);
       callObject.on("participant-left", refreshParticipants);
       callObject.on("participant-updated", refreshParticipants);
+      callObject.on("local-screen-share-started", refreshParticipants);
+      callObject.on("local-screen-share-stopped", refreshParticipants);
 
       callObject.on("left-meeting", () => {
         setIsJoined(false);
+        setIsCameraOn(false);
+        setIsMicOn(false);
+        setIsScreenSharing(false);
         setParticipantCount(0);
         setParticipants({});
       });
@@ -152,15 +182,13 @@ export function CameraProvider({
         userName: user.displayName,
       });
 
-      // Some browsers deliver joined-meeting before the Promise resolves. Updating
-      // state here as well keeps the workspace responsive in both event orders.
       refreshParticipants();
       setIsJoined(true);
 
       if (targetContainer) {
-        const participants = callObject.participants();
-        setParticipants({ ...participants });
-        setParticipantCount(Object.keys(participants).length);
+        const currentParticipants = callObject.participants();
+        setParticipants({ ...currentParticipants });
+        setParticipantCount(Object.keys(currentParticipants).length);
       }
     } catch (err) {
       const msg = lastDailyErrorRef.current || (err instanceof Error ? err.message : "Erro ao conectar.");
@@ -178,6 +206,58 @@ export function CameraProvider({
     }
   }, [isJoined, isLoading, campaignCode, user.displayName]);
 
+  const toggleCamera = useCallback(async () => {
+    const call = callRef.current as any;
+    if (!call || !isJoined || isMediaBusy) return;
+    setError("");
+    setIsMediaBusy(true);
+    try {
+      await call.setLocalVideo(!isCameraOn);
+      refreshParticipantsRef.current?.();
+    } catch (err) {
+      console.error("Could not change camera state:", err);
+      setError("Não foi possível alterar a câmera. Verifique a permissão do navegador.");
+    } finally {
+      setIsMediaBusy(false);
+    }
+  }, [isJoined, isMediaBusy, isCameraOn]);
+
+  const toggleMicrophone = useCallback(async () => {
+    const call = callRef.current as any;
+    if (!call || !isJoined || isMediaBusy) return;
+    setError("");
+    setIsMediaBusy(true);
+    try {
+      await call.setLocalAudio(!isMicOn);
+      refreshParticipantsRef.current?.();
+    } catch (err) {
+      console.error("Could not change microphone state:", err);
+      setError("Não foi possível alterar o microfone. Verifique a permissão do navegador.");
+    } finally {
+      setIsMediaBusy(false);
+    }
+  }, [isJoined, isMediaBusy, isMicOn]);
+
+  const toggleScreenShare = useCallback(async () => {
+    const call = callRef.current as any;
+    if (!call || !isJoined || isMediaBusy) return;
+    setError("");
+    setIsMediaBusy(true);
+    try {
+      if (isScreenSharing) {
+        await call.stopScreenShare();
+      } else {
+        await call.startScreenShare();
+      }
+      refreshParticipantsRef.current?.();
+    } catch (err) {
+      console.error("Could not change screen sharing state:", err);
+      setError(isScreenSharing ? "Não foi possível parar o compartilhamento." : "O compartilhamento de tela não foi iniciado.");
+    } finally {
+      setIsMediaBusy(false);
+    }
+  }, [isJoined, isMediaBusy, isScreenSharing]);
+
   useEffect(() => {
     return () => {
       leaveRoom();
@@ -193,17 +273,52 @@ export function CameraProvider({
   const value = useMemo<CameraContextValue>(
     () => ({
       isLoading,
+      isMediaBusy,
       error,
       isJoined,
+      isCameraOn,
+      isMicOn,
+      isScreenSharing,
       participantCount,
       participants,
       joinRoom,
       leaveRoom,
+      toggleCamera,
+      toggleMicrophone,
+      toggleScreenShare,
     }),
-    [isLoading, error, isJoined, participantCount, participants, joinRoom, leaveRoom]
+    [isLoading, isMediaBusy, error, isJoined, isCameraOn, isMicOn, isScreenSharing, participantCount, participants, joinRoom, leaveRoom, toggleCamera, toggleMicrophone, toggleScreenShare]
   );
 
   return <CameraContext.Provider value={value}>{children}</CameraContext.Provider>;
+}
+
+function CameraControls() {
+  const { isCameraOn, isMicOn, isScreenSharing, isMediaBusy, toggleCamera, toggleMicrophone, toggleScreenShare } = useCamera();
+  const buttonStyle = (active: boolean) => ({
+    border: `1px solid ${active ? "var(--accent)" : "var(--border)"}`,
+    background: active ? "color-mix(in srgb, var(--accent) 16%, var(--surface))" : "var(--surface)",
+    color: active ? "var(--accent)" : "var(--text-primary)",
+    borderRadius: 8,
+    padding: "8px 10px",
+    fontSize: 12,
+    fontWeight: 700,
+    cursor: isMediaBusy ? "wait" : "pointer",
+  });
+
+  return (
+    <div style={{ display: "flex", flexWrap: "wrap", gap: 8, margin: "12px 0 4px" }}>
+      <button type="button" disabled={isMediaBusy} style={buttonStyle(isCameraOn)} onClick={() => void toggleCamera()}>
+        {isCameraOn ? "📹 Desligar câmera" : "📷 Ligar câmera"}
+      </button>
+      <button type="button" disabled={isMediaBusy} style={buttonStyle(isMicOn)} onClick={() => void toggleMicrophone()}>
+        {isMicOn ? "🎙 Silenciar" : "🔇 Ligar microfone"}
+      </button>
+      <button type="button" disabled={isMediaBusy} style={buttonStyle(isScreenSharing)} onClick={() => void toggleScreenShare()}>
+        {isScreenSharing ? "⏹ Parar tela" : "🖥 Transmitir tela"}
+      </button>
+    </div>
+  );
 }
 
 export function ShieldCameras() {
@@ -218,10 +333,12 @@ export function ShieldCameras() {
           <button onClick={leaveRoom}>Sair da sala</button>
         ) : (
           <button disabled={isLoading} onClick={() => void joinRoom(containerRef.current)}>
-            {isLoading ? "Conectando..." : "Entrar na sala"}
+            {isLoading ? "Conectando..." : "Entrar para assistir"}
           </button>
         )}
       </div>
+      {!isJoined && <p style={{ margin: "8px 0", color: "var(--text-secondary)", fontSize: 12 }}>Entre sem câmera; você verá os outros participantes antes de ativar a sua.</p>}
+      {isJoined && <CameraControls />}
       {error && <p className="shield-camera-error">{error}</p>}
       <div ref={containerRef} className="shield-camera-grid" id="daily-video-container" />
       <DailyVideoGrid />
@@ -235,10 +352,13 @@ export function PlayerCamera() {
   return (
     <div className="sheet-player-camera">
       {isJoined ? (
-        <button onClick={leaveRoom}>Sair</button>
+        <>
+          <button onClick={leaveRoom}>Sair</button>
+          <CameraControls />
+        </>
       ) : (
         <button disabled={isLoading} onClick={() => void joinRoom()}>
-          {isLoading ? "Conectando..." : "📷 Entrar"}
+          {isLoading ? "Conectando..." : "📷 Assistir às câmeras"}
         </button>
       )}
       {error && <p className="camera-error">{error}</p>}
@@ -272,10 +392,12 @@ export function CameraWorkspace({ people }: { people: CameraRosterEntry[] }) {
           <button onClick={leaveRoom}>Sair</button>
         ) : (
           <button disabled={isLoading} onClick={() => void joinRoom(containerRef.current)}>
-            {isLoading ? "Conectando..." : "Entrar"}
+            {isLoading ? "Conectando..." : "Entrar para assistir"}
           </button>
         )}
       </div>
+      {!isJoined && <p style={{ margin: "10px 0 0", color: "var(--text-secondary)", fontSize: 12 }}>Você entra como espectador: pode ver todos sem liberar câmera ou microfone.</p>}
+      {isJoined && <CameraControls />}
       {error && <p className="camera-error">{error}</p>}
       <div ref={containerRef} className="workspace-cameras-grid" id="daily-workspace-container" />
       <DailyVideoGrid people={people} />
@@ -300,8 +422,6 @@ function DailyVideoGrid({ people = [] }: { people?: CameraRosterEntry[] }) {
     return { id: person.id, person, participant };
   });
 
-  // Guests that joined the Daily room but are not known by the campaign roster
-  // are still visible rather than becoming an empty black area.
   dailyParticipants
     .filter((participant) => !linkedSessions.has(participant.session_id))
     .forEach((participant) => {
@@ -339,9 +459,14 @@ function DailyVideoGrid({ people = [] }: { people?: CameraRosterEntry[] }) {
 function DailyParticipantTile({ participant, person }: { participant?: any; person: CameraRosterEntry }) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const audioRef = useRef<HTMLAudioElement>(null);
+  const screenTrack = participant?.tracks?.screenVideo?.persistentTrack as MediaStreamTrack | undefined;
+  const cameraTrack = participant?.tracks?.video?.persistentTrack as MediaStreamTrack | undefined;
+  const videoTrack = screenTrack || cameraTrack;
+  const isScreenSharing = isTrackOn(participant?.tracks?.screenVideo);
+  const isCamOn = isTrackOn(participant?.tracks?.video);
+  const isMicOn = isTrackOn(participant?.tracks?.audio);
 
   useEffect(() => {
-    const videoTrack = participant?.tracks?.video?.persistentTrack as MediaStreamTrack | undefined;
     const audioTrack = participant?.tracks?.audio?.persistentTrack as MediaStreamTrack | undefined;
     if (videoRef.current && videoTrack) {
       videoRef.current.srcObject = new MediaStream([videoTrack]);
@@ -349,12 +474,11 @@ function DailyParticipantTile({ participant, person }: { participant?: any; pers
     if (audioRef.current && audioTrack) {
       audioRef.current.srcObject = new MediaStream([audioTrack]);
     }
-  }, [participant]);
+  }, [participant, videoTrack]);
 
-  const isCamOn = Boolean(participant?.tracks?.video?.persistentTrack);
-  const isMicOn = Boolean(participant?.tracks?.audio?.persistentTrack);
   const label = participant?.user_name || person.displayName;
   const roleLabel = person.role === "master" ? "Mestre" : "Jogador";
+  const hasVideo = isScreenSharing || isCamOn;
 
   return (
     <article
@@ -362,7 +486,7 @@ function DailyParticipantTile({ participant, person }: { participant?: any; pers
         position: "relative",
         minHeight: 220,
         background: "linear-gradient(145deg, var(--surface), color-mix(in srgb, var(--surface) 70%, #000))",
-        border: `1px solid ${isCamOn ? "var(--accent)" : "var(--border)"}`,
+        border: `1px solid ${hasVideo ? "var(--accent)" : "var(--border)"}`,
         borderRadius: 16,
         overflow: "hidden",
         display: "grid",
@@ -391,7 +515,7 @@ function DailyParticipantTile({ participant, person }: { participant?: any; pers
         <small style={{ color: "var(--text-secondary)" }}>{person.isOnline ? roleLabel : "Offline"}</small>
       </div>
 
-      {isCamOn && (
+      {hasVideo && (
         <video
           ref={videoRef}
           autoPlay
@@ -403,10 +527,10 @@ function DailyParticipantTile({ participant, person }: { participant?: any; pers
 
       <div style={{ position: "absolute", zIndex: 2, inset: "auto 10px 10px 10px", display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
         <span style={{ background: "rgba(5, 10, 10, 0.78)", color: "#fff", fontSize: 12, padding: "5px 8px", borderRadius: 7, backdropFilter: "blur(6px)" }}>
-          {label}
+          {label}{isScreenSharing ? " · Tela" : ""}
         </span>
         <span style={{ background: "rgba(5, 10, 10, 0.78)", color: "#fff", fontSize: 12, padding: "5px 8px", borderRadius: 7, backdropFilter: "blur(6px)" }}>
-          {isCamOn ? "📹" : "◌"} {isMicOn ? "🎙" : "🔇"}
+          {isScreenSharing ? "🖥" : isCamOn ? "📹" : "◌"} {isMicOn ? "🎙" : "🔇"}
         </span>
       </div>
       {participant && <audio ref={audioRef} autoPlay playsInline />}
