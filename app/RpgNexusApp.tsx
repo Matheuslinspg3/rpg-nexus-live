@@ -819,7 +819,18 @@ export default function RpgNexusApp({ initialUser }: { initialUser: User | null 
           ) : roomView === "dice" ? (
             <DiceWorkspace rolls={rolls} role={room.campaign.role} viewerUserId={room.viewerEmail} busy={rollBusy} peopleHere={presence.filter((person) => person.email === room.viewerEmail || person.editingField?.startsWith("dice:"))} onRoll={(spec) => void rollDice(spec)} />
           ) : roomView === "camera" ? (
-            <CameraWorkspace />
+            <CameraWorkspace
+              people={room.members.map((member) => {
+                const currentPresence = presence.find((person) => person.email === member.email);
+                return {
+                  id: member.email,
+                  displayName: member.displayName,
+                  role: member.role,
+                  isOnline: Boolean(currentPresence),
+                  color: currentPresence?.color,
+                };
+              })}
+            />
           ) : roomView === "shield" ? (
             <ShieldWorkspace campaignCode={room.campaign.code} role={room.campaign.role} characters={room.characters} scene={scene} rolls={rolls} rollBusy={rollBusy} onRoll={(spec) => void rollDice(spec)} onReveal={(value) => void updateSceneReveal(value)} onOpenCharacter={(characterId) => void selectCharacter(characterId)} onGoTo={(view) => switchRoomView(view)} />
           ) : !selectedCharacter ? (
