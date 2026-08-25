@@ -246,70 +246,171 @@ export function PlayerCamera() {
   );
 }
 
-export function CameraWorkspace() {
+export type CameraRosterEntry = {
+  id: string;
+  displayName: string;
+  role?: Role;
+  isOnline?: boolean;
+  color?: string;
+};
+
+export function CameraWorkspace({ people }: { people: CameraRosterEntry[] }) {
   const { isJoined, isLoading, error, participantCount, joinRoom, leaveRoom } = useCamera();
   const containerRef = useRef<HTMLDivElement>(null);
+  const onlineCount = people.filter((person) => person.isOnline).length;
 
   return (
     <div className="workspace-cameras">
       <div className="workspace-cameras-header">
-        <h3>Câmeras ({participantCount})</h3>
+        <div>
+          <h3>Câmeras ({people.length})</h3>
+          <p style={{ margin: "4px 0 0", color: "var(--text-secondary)", fontSize: 12 }}>
+            {onlineCount} {onlineCount === 1 ? "participante online" : "participantes online"} · {participantCount} na chamada
+          </p>
+        </div>
         {isJoined ? (
           <button onClick={leaveRoom}>Sair</button>
         ) : (
           <button disabled={isLoading} onClick={() => void joinRoom(containerRef.current)}>
-            {isLoading ? "..." : "Entrar"}
+            {isLoading ? "Conectando..." : "Entrar"}
           </button>
         )}
       </div>
       {error && <p className="camera-error">{error}</p>}
       <div ref={containerRef} className="workspace-cameras-grid" id="daily-workspace-container" />
-      <DailyVideoGrid />
+      <DailyVideoGrid people={people} />
     </div>
   );
 }
 
-function DailyVideoGrid() {
-  const { participants } = useCamera();
-  const list = Object.values(participants) as any[];
-  if (list.length === 0) return null;
-  return <div className="daily-participant-grid" style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(160px, 1fr))", gap: 12, marginTop: 16 }}>{list.map((p) => <DailyParticipantTile key={p.session_id} participant={p} />)}</div>;
+function normalizeParticipantName(name: string | undefined) {
+  return (name || "").trim().toLocaleLowerCase();
 }
 
-function DailyParticipantTile({ participant }: { participant: any }) {
+function DailyVideoGrid({ people = [] }: { people?: CameraRosterEntry[] }) {
+  const { participants } = useCamera();
+  const dailyParticipants = Object.values(participants) as any[];
+  const linkedSessions = new Set<string>();
+
+  const tiles = people.map((person) => {
+    const participant = dailyParticipants.find((item) =>
+      normalizeParticipantName(item.user_name) === normalizeParticipantName(person.displayName)
+    );
+    if (participant?.session_id) linkedSessions.add(participant.session_id);
+    return { id: person.id, person, participant };
+  });
+
+  // Guests that joined the Daily room but are not known by the campaign roster
+  // are still visible rather than becoming an empty black area.
+  dailyParticipants
+    .filter((participant) => !linkedSessions.has(participant.session_id))
+    .forEach((participant) => {
+      tiles.push({
+        id: participant.session_id || participant.user_name || crypto.randomUUID(),
+        person: {
+          id: participant.session_id || "guest",
+          displayName: participant.user_name || "Convidado",
+          isOnline: true,
+        },
+        participant,
+      });
+    });
+
+  if (tiles.length === 0) {
+    return (
+      <div style={{ minHeight: 280, border: "1px dashed var(--border)", borderRadius: 16, display: "grid", placeItems: "center", color: "var(--text-secondary)", textAlign: "center", padding: 24 }}>
+        Ainda não há participantes nesta mesa.
+      </div>
+    );
+  }
+
+  return (
+    <div
+      className="daily-participant-grid"
+      style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 16, marginTop: 16, alignContent: "start" }}
+    >
+      {tiles.map((tile) => (
+        <DailyParticipantTile key={tile.id} participant={tile.participant} person={tile.person} />
+      ))}
+    </div>
+  );
+}
+
+function DailyParticipantTile({ participant, person }: { participant?: any; person: CameraRosterEntry }) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const audioRef = useRef<HTMLAudioElement>(null);
 
   useEffect(() => {
-    const videoTrack = participant.tracks?.video?.persistentTrack as MediaStreamTrack | undefined;
-    const audioTrack = participant.tracks?.audio?.persistentTrack as MediaStreamTrack | undefined;
+    const videoTrack = participant?.tracks?.video?.persistentTrack as MediaStreamTrack | undefined;
+    const audioTrack = participant?.tracks?.audio?.persistentTrack as MediaStreamTrack | undefined;
     if (videoRef.current && videoTrack) {
-      const stream = new MediaStream([videoTrack]);
-      videoRef.current.srcObject = stream;
+      videoRef.current.srcObject = new MediaStream([videoTrack]);
     }
     if (audioRef.current && audioTrack) {
-      const stream = new MediaStream([audioTrack]);
-      audioRef.current.srcObject = stream;
+      audioRef.current.srcObject = new MediaStream([audioTrack]);
     }
   }, [participant]);
 
-  const isCamOn = !!participant.tracks?.video?.persistentTrack;
-  const isMicOn = !!participant.tracks?.audio?.persistentTrack;
+  const isCamOn = Boolean(participant?.tracks?.video?.persistentTrack);
+  const isMicOn = Boolean(participant?.tracks?.audio?.persistentTrack);
+  const label = participant?.user_name || person.displayName;
+  const roleLabel = person.role === "master" ? "Mestre" : "Jogador";
 
   return (
-    <div style={{ position: "relative", background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 12, overflow: "hidden", aspectRatio: "16/9", display: "grid", placeItems: "center" }}>
-      {isCamOn ? (
-        <video ref={videoRef} autoPlay playsInline muted={participant.local} style={{ width: "100%", height: "100%", objectFit: "cover" }} />
-      ) : (
-        <div style={{ width: 48, height: 48, borderRadius: 999, background: "var(--accent-soft)", display: "grid", placeItems: "center", color: "var(--text-primary)", fontWeight: 700 }}>
-          {participant.user_name?.[0]?.toUpperCase() || "?"}
-        </div>
+    <article
+      style={{
+        position: "relative",
+        minHeight: 220,
+        background: "linear-gradient(145deg, var(--surface), color-mix(in srgb, var(--surface) 70%, #000))",
+        border: `1px solid ${isCamOn ? "var(--accent)" : "var(--border)"}`,
+        borderRadius: 16,
+        overflow: "hidden",
+        display: "grid",
+        placeItems: "center",
+        isolation: "isolate",
+      }}
+    >
+      <div style={{ display: "grid", placeItems: "center", gap: 10, color: "var(--text-primary)", textAlign: "center", padding: 20 }}>
+        <span
+          style={{
+            width: 72,
+            height: 72,
+            display: "grid",
+            placeItems: "center",
+            borderRadius: 999,
+            border: `2px solid ${person.color || "var(--accent)"}`,
+            background: "color-mix(in srgb, var(--accent) 12%, transparent)",
+            color: person.color || "var(--accent)",
+            fontSize: 24,
+            fontWeight: 800,
+          }}
+        >
+          {label.slice(0, 1).toUpperCase() || "?"}
+        </span>
+        <strong>{label}</strong>
+        <small style={{ color: "var(--text-secondary)" }}>{person.isOnline ? roleLabel : "Offline"}</small>
+      </div>
+
+      {isCamOn && (
+        <video
+          ref={videoRef}
+          autoPlay
+          playsInline
+          muted={participant?.local}
+          style={{ position: "absolute", inset: 0, zIndex: 1, width: "100%", height: "100%", objectFit: "cover", background: "#050808" }}
+        />
       )}
-      <span style={{ position: "absolute", bottom: 6, left: 6, background: "rgba(0,0,0,0.6)", color: "#fff", fontSize: 10, padding: "2px 6px", borderRadius: 6 }}>
-        {participant.user_name || "Convidado"} {isMicOn ? "🎙" : "🔇"}
-      </span>
-      <audio ref={audioRef} autoPlay playsInline />
-    </div>
+
+      <div style={{ position: "absolute", zIndex: 2, inset: "auto 10px 10px 10px", display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
+        <span style={{ background: "rgba(5, 10, 10, 0.78)", color: "#fff", fontSize: 12, padding: "5px 8px", borderRadius: 7, backdropFilter: "blur(6px)" }}>
+          {label}
+        </span>
+        <span style={{ background: "rgba(5, 10, 10, 0.78)", color: "#fff", fontSize: 12, padding: "5px 8px", borderRadius: 7, backdropFilter: "blur(6px)" }}>
+          {isCamOn ? "📹" : "◌"} {isMicOn ? "🎙" : "🔇"}
+        </span>
+      </div>
+      {participant && <audio ref={audioRef} autoPlay playsInline />}
+    </article>
   );
 }
 
