@@ -794,6 +794,7 @@ export default function RpgNexusApp({ initialUser }: { initialUser: User | null 
       </header>
       {notice && <div className="room-notice" role="status">{notice}</div>}
       <div className="room-layout">
+        {sidebarOpen && <button className="room-sidebar-backdrop" type="button" aria-label="Fechar painel da mesa" onClick={() => setSidebarOpen(false)} />}
         <aside className={`room-sidebar ${sidebarOpen ? "is-open" : ""}`}>
           <button className="back-button" onClick={leaveRoom}>← Todas as campanhas</button>
           <section className="sidebar-section"><p className="sidebar-label">Nesta mesa</p><div className="viewer-role"><span className="avatar self">{initials(user.displayName)}</span><div><strong>{user.displayName}</strong><small>Você · {roleLabel(room.campaign.role)}</small></div></div></section>
@@ -886,8 +887,47 @@ export default function RpgNexusApp({ initialUser }: { initialUser: User | null 
           </>}
         </section>
       </div>
+      <MobileRoomNav activeView={roomView} role={room.campaign.role} onlineCount={presence.length} onChange={switchRoomView} onOpenPanel={() => setSidebarOpen(true)} />
     </main>
     </CameraProvider>
+  );
+}
+
+
+function MobileRoomNav({ activeView, role, onlineCount, onChange, onOpenPanel }: {
+  activeView: RoomView;
+  role: Role;
+  onlineCount: number;
+  onChange: (view: RoomView) => void;
+  onOpenPanel: () => void;
+}) {
+  const items: Array<{ view: RoomView; label: string; icon: string }> = [
+    { view: "shield", label: role === "master" ? "Escudo" : "Mesa", icon: "◆" },
+    { view: "sheet", label: "Ficha", icon: "▤" },
+    { view: "scene", label: "Cena", icon: "◐" },
+    { view: "dice", label: "Dados", icon: "⬡" },
+    { view: "camera", label: "Câmeras", icon: "◉" },
+  ];
+
+  return (
+    <nav className="mobile-room-nav" aria-label="Navegação da mesa">
+      {items.map((item) => (
+        <button
+          type="button"
+          key={item.view}
+          className={activeView === item.view ? "active" : ""}
+          aria-current={activeView === item.view ? "page" : undefined}
+          onClick={() => onChange(item.view)}
+        >
+          <span aria-hidden="true">{item.icon}</span>
+          <small>{item.label}</small>
+        </button>
+      ))}
+      <button type="button" className="mobile-room-members" onClick={onOpenPanel} aria-label={`Abrir painel da mesa: ${onlineCount} participantes online`}>
+        <span aria-hidden="true">☰</span>
+        <small>Mesa</small>
+      </button>
+    </nav>
   );
 }
 
