@@ -1,11 +1,13 @@
 import { createServerClient } from '@supabase/ssr'
 import { cookies } from 'next/headers'
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
-const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-
 // Server-side Supabase client (respects RLS, uses user session)
 export async function createServerSupabaseClient() {
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
+  const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
+  if (!supabaseUrl || !supabaseAnonKey) {
+    throw new Error('Missing Supabase environment variables')
+  }
   const cookieStore = await cookies()
   
   return createServerClient(supabaseUrl, supabaseAnonKey, {
@@ -30,14 +32,16 @@ export async function createServerSupabaseClient() {
 
 // Helper to get authenticated user from server components
 export async function getAuthenticatedUser() {
-  const supabase = await createServerSupabaseClient()
-  const { data: { user }, error } = await supabase.auth.getUser()
-  
-  if (error || !user) {
+  try {
+    const supabase = await createServerSupabaseClient()
+    const { data: { user }, error } = await supabase.auth.getUser()
+    if (error || !user) {
+      return null
+    }
+    return user
+  } catch {
     return null
   }
-  
-  return user
 }
 
 // Helper to get session
