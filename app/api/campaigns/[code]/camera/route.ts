@@ -32,7 +32,10 @@ export async function GET(request: Request, context: Context) {
     .single();
 
   const dailyApiKey = process.env.DAILY_API_KEY;
-  if (!dailyApiKey) return Response.json({ error: "Daily.co API key not configured." }, { status: 500 });
+  if (!dailyApiKey || dailyApiKey.length < 20) {
+    console.error("Daily API key missing or placeholder:", dailyApiKey);
+    return Response.json({ error: "Câmeras desabilitadas — DAILY_API_KEY não configurado no servidor. Configure uma chave válida em dashboard.daily.co no Vercel." }, { status: 503 });
+  }
 
   async function createMeetingToken(roomName: string): Promise<string | null> {
     try {
@@ -44,6 +47,9 @@ export async function GET(request: Request, context: Context) {
       if (!tokenRes.ok) {
         const errText = await tokenRes.text();
         console.error("Daily token error:", errText);
+        if (errText.includes("401") || errText.includes("Unauthorized") || errText.includes("invalid")) {
+          console.error("Daily API key rejected - invalid key");
+        }
         return null;
       }
       const tokenData = (await tokenRes.json()) as { token: string };
@@ -56,7 +62,7 @@ export async function GET(request: Request, context: Context) {
 
   if (existing?.room_url && (existing as any).room_name) {
     const token = await createMeetingToken((existing as any).room_name);
-    if (!token) return Response.json({ error: "Failed to create meeting token." }, { status: 500 });
+    if (!token) return Response.json({ error: "Falha ao criar token da sala — verifique se DAILY_API_KEY é válida em dashboard.daily.co." }, { status: 503 });
     return Response.json({ roomUrl: existing.room_url, token });
   }
 
@@ -82,7 +88,10 @@ export async function GET(request: Request, context: Context) {
     if (!response.ok) {
       const error = await response.text();
       console.error("Daily.co error:", error);
-      return Response.json({ error: "Failed to create room." }, { status: 500 });
+      if (error.includes("401") || error.includes("Unauthorized")) {
+        return Response.json({ error: "Daily.co rejeitou a API key — configure DAILY_API_KEY válida no Vercel." }, { status: 503 });
+      }
+      return Response.json({ error: "Falha ao criar sala de vídeo." }, { status: 500 });
     }
 
     const room = (await response.json()) as { url: string; name: string };
@@ -95,7 +104,7 @@ export async function GET(request: Request, context: Context) {
     if (insertError) return Response.json({ error: "Falha ao salvar a sala." }, { status: 500 });
 
     const token = await createMeetingToken(room.name);
-    if (!token) return Response.json({ error: "Failed to create meeting token." }, { status: 500 });
+    if (!token) return Response.json({ error: "Falha ao criar token — verifique DAILY_API_KEY." }, { status: 503 });
     return Response.json({ roomUrl: room.url, token });
   } catch (error) {
     console.error("Failed to create Daily.co room:", error);
