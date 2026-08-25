@@ -45,8 +45,8 @@ export function AuthForm() {
       <div className="login-orbit login-orbit-two" aria-hidden />
       <div className="basic-auth-card">
         <div className="auth-brand">
-          <h1>RPG Nexus</h1>
-          <p>{isLogin ? 'Entre na sua conta para continuar sua campanha.' : 'Crie sua conta e comece sua jornada.'}</p>
+          <h1>Cianna's Stage</h1>
+          <p>{isLogin ? 'Entre no palco de Planeta Cianna.' : 'Crie sua conta e comece sua jornada em Planeta Cianna.'}</p>
         </div>
 
         <div className="auth-tabs">
