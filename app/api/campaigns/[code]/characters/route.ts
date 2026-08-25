@@ -9,6 +9,32 @@ function cleanName(value: unknown) {
   return typeof value === "string" ? value.trim().slice(0, 64) : "";
 }
 
+function characterDatabaseError(stage: string, error: any) {
+  const code = typeof error?.code === "string" ? error.code : "";
+  const message = typeof error?.message === "string" ? error.message : "Erro desconhecido do Supabase.";
+  const detail = typeof error?.details === "string" ? error.details : "";
+
+  console.error(`Character creation failed at ${stage}:`, { code, message, detail, hint: error?.hint });
+
+  if (code === "42P01" || /relation .* does not exist|table .* does not exist/i.test(message)) {
+    return `O banco não possui a tabela necessária para fichas (${stage}). Execute o schema de characters no Supabase.`;
+  }
+  if (code === "PGRST204" || /column .* does not exist/i.test(message)) {
+    return `A tabela de fichas está desatualizada: falta uma coluna em ${stage}. Detalhe: ${message}`;
+  }
+  if (code === "42501" || /row-level security|permission denied/i.test(message)) {
+    return "O Supabase bloqueou a gravação da ficha. Verifique SUPABASE_SERVICE_ROLE_KEY no Vercel.";
+  }
+  if (code === "23503") {
+    return "A campanha desta ficha não existe mais no banco. Saia e entre novamente na mesa.";
+  }
+  if (code === "23502") {
+    return `O banco exige um campo ausente ao criar a ficha (${stage}). Detalhe: ${message}`;
+  }
+
+  return `Falha no banco ao criar a ficha (${stage}). Detalhe: ${message}`;
+}
+
 export async function POST(request: Request, context: Context) {
   const user = await requireUser();
   if (!user) return Response.json({ error: "Entre para continuar." }, { status: 401 });
@@ -46,7 +72,9 @@ export async function POST(request: Request, context: Context) {
     created_at: now,
     updated_at: now,
   });
-  if (charError) return Response.json({ error: "Não foi possível criar a ficha." }, { status: 500 });
+  if (charError) {
+    return Response.json({ error: characterDatabaseError("characters", charError) }, { status: 500 });
+  }
 
   const fieldRows = [
     { character_id: id, campaign_id: campaignId, field_key: "classLayout", field_value: layout.id, updated_by: user.email, updated_by_name: user.displayName, updated_at: now },
@@ -54,14 +82,22 @@ export async function POST(request: Request, context: Context) {
     { character_id: id, campaign_id: campaignId, field_key: "classFeatures", field_value: "[]", updated_by: user.email, updated_by_name: user.displayName, updated_at: now },
   ];
   const { error: fieldsError } = await supabase.from("character_fields").insert(fieldRows);
-  if (fieldsError) return Response.json({ error: "Não foi possível inicializar a ficha." }, { status: 500 });
+  if (fieldsError) {
+    // Do not leave a character that cannot be opened because its base fields failed.
+    const { error: rollbackError } = await supabase.from("characters").delete().eq("id", id);
+    if (rollbackError) console.error("Could not rollback incomplete character:", rollbackError);
+    return Response.json({ error: characterDatabaseError("character_fields", fieldsError) }, { status: 500 });
+  }
 
   const { data: current } = await supabase.from("campaigns").select("version").eq("id", campaignId).single();
   const { error: verError } = await supabase
     .from("campaigns")
     .update({ version: (current?.version ?? 0) + 1, updated_at: now })
     .eq("id", campaignId);
-  if (verError) return Response.json({ error: "Não foi possível atualizar a campanha." }, { status: 500 });
+  if (verError) {
+    console.error("Could not update campaign version after character creation:", verError);
+    // The character is valid even if the optional version counter could not be incremented.
+  }
 
   return Response.json(
     { character: { id, name, assignedUserId: null, assignedDisplayName: null, updatedAt: now } },
