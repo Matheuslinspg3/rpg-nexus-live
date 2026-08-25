@@ -4,43 +4,43 @@
 
 :root {
   /* Legacy colors - mantidos para compatibilidade */
-  --ink: #181a19;
-  --ink-soft: #2b2e2c;
-  --paper: #f8f6f2;
-  --paper-bright: #ffffff;
-  --muted: #74766f;
-  --line: #d8d2c5;
-  --mint: #4ecca3;
-  --mint-deep: #3ba683;
-  --gold: #deb76d;
-  --rose: #e57373;
-  --night: #0a0c0b;
-  --panel: #13171a;
+  --ink: #160d10;
+  --ink-soft: #2d191d;
+  --paper: #efe3c8;
+  --paper-bright: #fff8e9;
+  --muted: #9e8974;
+  --line: #6f5135;
+  --mint: #c9a34e;
+  --mint-deep: #89672c;
+  --gold: #d7b15b;
+  --rose: #bf6671;
+  --night: #0b0709;
+  --panel: #1b1115;
 
   /* New Design System - Dark Fantasy VTT */
-  --void: #0a0c0b;
-  --surface: #13171a;
-  --surface-raised: #1a2024;
-  --surface-overlay: #242b30;
-  --surface-hover: #1f252a;
+  --void: #0b0709;
+  --surface: #181014;
+  --surface-raised: #24171b;
+  --surface-overlay: #2e1e23;
+  --surface-hover: #38242a;
 
-  --text-primary: #e8ecef;
-  --text-secondary: #9ca4ab;
-  --text-muted: #6b7278;
-  --text-disabled: #4a5056;
+  --text-primary: #f2e6cf;
+  --text-secondary: #c1af98;
+  --text-muted: #927f6d;
+  --text-disabled: #66564c;
 
-  --accent: #4ecca3;
-  --accent-hover: #5efbb5;
-  --accent-active: #3ba683;
-  --accent-glow: rgba(78, 204, 163, 0.25);
-  --accent-soft: rgba(78, 204, 163, 0.12);
-  --accent-subtle: rgba(78, 204, 163, 0.06);
+  --accent: #c9a34e;
+  --accent-hover: #e5c46c;
+  --accent-active: #8d6829;
+  --accent-glow: rgba(201, 163, 78, 0.28);
+  --accent-soft: rgba(201, 163, 78, 0.13);
+  --accent-subtle: rgba(201, 163, 78, 0.07);
 
-  --gold-accent: #deb76d;
-  --gold-soft: rgba(222, 183, 109, 0.12);
+  --gold-accent: #d7b15b;
+  --gold-soft: rgba(215, 177, 91, 0.13);
 
-  --danger: #e57373;
-  --danger-soft: rgba(229, 115, 115, 0.12);
+  --danger: #c96a73;
+  --danger-soft: rgba(201, 106, 115, 0.14);
   
   --warning: #ffb74d;
   --warning-soft: rgba(255, 183, 77, 0.12);
@@ -48,19 +48,19 @@
   --success: #81c784;
   --success-soft: rgba(129, 199, 132, 0.12);
 
-  --border: rgba(255, 255, 255, 0.08);
-  --border-strong: rgba(255, 255, 255, 0.14);
-  --border-subtle: rgba(255, 255, 255, 0.04);
+  --border: rgba(215, 177, 91, 0.17);
+  --border-strong: rgba(215, 177, 91, 0.32);
+  --border-subtle: rgba(215, 177, 91, 0.09);
 
   --shadow-sm: 0 2px 8px rgba(0, 0, 0, 0.12);
   --shadow-md: 0 4px 16px rgba(0, 0, 0, 0.18);
   --shadow-lg: 0 8px 32px rgba(0, 0, 0, 0.24);
   --shadow-xl: 0 16px 48px rgba(0, 0, 0, 0.32);
 
-  --radius-sm: 6px;
-  --radius-md: 10px;
-  --radius-lg: 14px;
-  --radius-xl: 18px;
+  --radius-sm: 2px;
+  --radius-md: 4px 12px 4px 12px;
+  --radius-lg: 5px 18px 5px 18px;
+  --radius-xl: 7px 24px 7px 24px;
   --radius-full: 9999px;
 
   --spacing-xs: 4px;
@@ -2867,3 +2867,63 @@ button {
 }
 
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { scroll-behavior: auto !important; transition: none !important; animation: none !important; } }
+
+
+/* Cianna's Stage — gótico medieval: veludo, ferro e ouro envelhecido */
+body {
+  background-color: var(--void);
+  background-image:
+    radial-gradient(ellipse at 50% -20%, rgba(116, 29, 47, 0.24), transparent 52%),
+    radial-gradient(circle at 15% 88%, rgba(201, 163, 78, 0.08), transparent 28%),
+    repeating-linear-gradient(135deg, rgba(255, 248, 233, 0.012) 0 1px, transparent 1px 7px);
+  font-family: Georgia, "Times New Roman", serif;
+}
+button, input, textarea, select { font-family: Inter, ui-sans-serif, system-ui, sans-serif; }
+.brand-lockup { color: var(--gold-accent); font-family: Georgia, "Times New Roman", serif; letter-spacing: .16em; text-shadow: 0 1px 0 #000, 0 0 18px rgba(201,163,78,.16); }
+.brand-mark {
+  border-radius: 3px 14px 3px 14px;
+  border-color: var(--gold-accent);
+  background: linear-gradient(145deg, rgba(201,163,78,.17), rgba(75,19,33,.18));
+  box-shadow: 0 0 0 3px var(--surface), inset 0 0 18px rgba(201,163,78,.1), 0 8px 16px rgba(0,0,0,.35);
+}
+.app-header, .room-header {
+  background: linear-gradient(90deg, rgba(20,11,14,.98), rgba(48,25,31,.96), rgba(20,11,14,.98));
+  border-bottom-color: rgba(215,177,91,.32);
+  box-shadow: 0 5px 22px rgba(0,0,0,.36), inset 0 -1px 0 rgba(255,236,181,.08);
+}
+.login-page {
+  background:
+    radial-gradient(ellipse at 50% 15%, rgba(116,29,47,.46), transparent 45%),
+    linear-gradient(155deg, #0b0709 0%, #211116 48%, #080607 100%);
+}
+.login-page::before {
+  background-image:
+    repeating-linear-gradient(90deg, rgba(215,177,91,.035) 0 1px, transparent 1px 74px),
+    repeating-linear-gradient(0deg, rgba(215,177,91,.025) 0 1px, transparent 1px 74px);
+}
+.login-card, .basic-auth-card, .action-card, .campaign-list, .shield-module {
+  background: linear-gradient(145deg, rgba(48,30,35,.94), rgba(24,16,20,.96));
+  box-shadow: 0 18px 46px rgba(0,0,0,.38), inset 0 1px 0 rgba(255,235,185,.055);
+}
+.login-card h1, .auth-brand h1, .dashboard-intro h1, .section-heading h2, .action-card h2 {
+  font-family: Georgia, "Times New Roman", serif;
+  color: var(--paper);
+  text-shadow: 0 2px 0 #120a0c;
+}
+.primary-button {
+  background: linear-gradient(135deg, #e0bc62, #9c742c);
+  color: #1a0f10;
+  border: 1px solid #f0d98e;
+  box-shadow: 0 4px 16px rgba(0,0,0,.35), inset 0 1px 0 rgba(255,249,218,.6);
+}
+.primary-button:hover { background: linear-gradient(135deg, #f0d078, #b58637); }
+.action-card-primary {
+  background: linear-gradient(135deg, rgba(117,29,48,.46), rgba(45,27,31,.95));
+  border-color: rgba(215,177,91,.55);
+}
+.action-icon, .campaign-sigil {
+  border-color: var(--gold-accent);
+  color: var(--gold-accent);
+  background: linear-gradient(145deg, rgba(201,163,78,.14), rgba(90,20,36,.16));
+}
+::selection { background: rgba(201,163,78,.35); color: var(--paper-bright); }
