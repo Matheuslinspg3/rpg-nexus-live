@@ -27,7 +27,7 @@ npm run dev
    - `NEXT_PUBLIC_SUPABASE_URL`: https://pszucfdwbmszpfguxacn.supabase.co
    - `NEXT_PUBLIC_SUPABASE_ANON_KEY`: (chave anon do Supabase)
    - `SUPABASE_SERVICE_ROLE_KEY`: (chave service_role)
-   - `DAILY_API_KEY`: CPMFOGIREO
+   - `DAILY_API_KEY`: (API key do painel Daily.co)
 3. Deploy automático no push
 
 ## Supabase Schema
