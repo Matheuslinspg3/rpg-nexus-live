@@ -36,38 +36,55 @@ export function AuthForm() {
   }
 
   return (
-    <div className="auth-container">
-      <div className="auth-box">
-        <h1>RPG Nexus</h1>
-        <p>{isLogin ? 'Entre na sua conta' : 'Crie sua conta'}</p>
+    <div className="login-page">
+      <div className="login-orbit login-orbit-one" aria-hidden />
+      <div className="login-orbit login-orbit-two" aria-hidden />
+      <div className="basic-auth-card">
+        <div className="auth-brand">
+          <h1>RPG Nexus</h1>
+          <p>{isLogin ? 'Entre na sua conta para continuar sua campanha.' : 'Crie sua conta e comece sua jornada.'}</p>
+        </div>
 
-        <form onSubmit={handleSubmit}>
+        <div className="auth-tabs">
+          <button type="button" className={isLogin ? 'active' : ''} onClick={() => { setIsLogin(true); setError('') }} disabled={loading}>
+            Entrar
+          </button>
+          <button type="button" className={!isLogin ? 'active' : ''} onClick={() => { setIsLogin(false); setError('') }} disabled={loading}>
+            Criar conta
+          </button>
+        </div>
+
+        <form className="auth-form" onSubmit={handleSubmit}>
           {!isLogin && (
-            <div className="form-field">
-              <label>Nome de usuário</label>
+            <label className="auth-field">
+              <span>Nome de usuário</span>
               <input
                 type="text"
                 value={username}
                 onChange={(e) => setUsername(e.target.value)}
-                required
+                required={!isLogin}
                 disabled={loading}
+                placeholder="seu_nick"
+                autoComplete="username"
               />
-            </div>
+            </label>
           )}
 
-          <div className="form-field">
-            <label>Email</label>
+          <label className="auth-field">
+            <span>Email</span>
             <input
               type="email"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               required
               disabled={loading}
+              placeholder="voce@exemplo.com"
+              autoComplete="email"
             />
-          </div>
+          </label>
 
-          <div className="form-field">
-            <label>Senha</label>
+          <label className="auth-field">
+            <span>Senha</span>
             <input
               type="password"
               value={password}
@@ -75,27 +92,24 @@ export function AuthForm() {
               required
               disabled={loading}
               minLength={6}
+              placeholder="••••••••"
+              autoComplete={isLogin ? 'current-password' : 'new-password'}
             />
-          </div>
+          </label>
 
-          {error && <p className="error-message">{error}</p>}
+          {error && <p className="auth-error">{error}</p>}
 
-          <button type="submit" disabled={loading} className="primary-button">
+          <button type="submit" disabled={loading} className="primary-button auth-submit">
             {loading ? 'Aguarde...' : isLogin ? 'Entrar' : 'Criar conta'}
           </button>
-
-          <button
-            type="button"
-            onClick={() => {
-              setIsLogin(!isLogin)
-              setError('')
-            }}
-            className="secondary-button"
-            disabled={loading}
-          >
-            {isLogin ? 'Não tem conta? Registre-se' : 'Já tem conta? Entre'}
-          </button>
         </form>
+
+        <div className="auth-switch">
+          <span>{isLogin ? 'Não tem conta?' : 'Já tem conta?'}</span>
+          <button type="button" onClick={() => { setIsLogin(!isLogin); setError('') }} disabled={loading}>
+            {isLogin ? 'Registre-se' : 'Entre'}
+          </button>
+        </div>
       </div>
     </div>
   )
