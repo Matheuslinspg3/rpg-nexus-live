@@ -55,34 +55,47 @@ export async function GET(request: Request, context: Context) {
 
   const cutoff = new Date(Date.now() - 18_000).toISOString();
 
+  // assigned_user_id stores an email, not a direct foreign key. Asking
+  // PostgREST for campaign_members(display_name) makes the whole character
+  // query fail, hiding sheets that were correctly created.
   const charactersQuery = supabase
     .from("characters")
-    .select("id, name, assigned_user_id, updated_at, campaign_members(display_name)")
+    .select("id, name, assigned_user_id, updated_at")
     .eq("campaign_id", campaign.id)
     .order("created_at", { ascending: true });
 
   if (campaign.role !== "master") charactersQuery.eq("assigned_user_id", user.email);
 
-  const { data: charactersData } = await charactersQuery;
+  const { data: charactersData, error: charactersError } = await charactersQuery;
+  if (charactersError) {
+    console.error("Could not load campaign characters:", charactersError);
+    return Response.json({ error: "Não foi possível carregar as fichas da campanha." }, { status: 500 });
+  }
 
-  const characters: Character[] = (charactersData || []).map((ch: any) => ({
-    id: ch.id,
-    name: ch.name,
-    assignedUserId: ch.assigned_user_id,
-    assignedDisplayName: ch.campaign_members?.[0]?.display_name || null,
-    updatedAt: ch.updated_at,
-  }));
-
-  const { data: membersData } = await supabase
+  const { data: membersData, error: membersError } = await supabase
     .from("campaign_members")
     .select("email, display_name, role")
     .eq("campaign_id", campaign.id)
     .order("joined_at", { ascending: true });
 
+  if (membersError) {
+    console.error("Could not load campaign members:", membersError);
+    return Response.json({ error: "Não foi possível carregar os participantes da campanha." }, { status: 500 });
+  }
+
   const members = (membersData || []).map((m: any) => ({
     email: m.email,
     displayName: m.display_name,
     role: m.role as "master" | "player",
+  }));
+
+  const displayNameByEmail = new Map(members.map((member) => [member.email, member.displayName]));
+  const characters: Character[] = (charactersData || []).map((ch: any) => ({
+    id: ch.id,
+    name: ch.name,
+    assignedUserId: ch.assigned_user_id,
+    assignedDisplayName: ch.assigned_user_id ? displayNameByEmail.get(ch.assigned_user_id) || null : null,
+    updatedAt: ch.updated_at,
   }));
 
   members.sort((a, b) => {
