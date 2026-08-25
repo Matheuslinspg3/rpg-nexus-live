@@ -36,8 +36,11 @@ async function createMeetingToken(apiKey: string, roomName: string, role: Role) 
       body: JSON.stringify({
         properties: {
           room_name: roomName,
-          // Players do not receive room-owner privileges.
           is_owner: role === "master",
+          // Each user enters in spectator mode and can opt into media later.
+          start_video_off: true,
+          start_audio_off: true,
+          enable_screenshare: true,
         },
       }),
     });
@@ -71,10 +74,10 @@ async function createDailyRoom(apiKey: string, roomName: string) {
         privacy: "private",
         properties: {
           max_participants: 10,
-          enable_screenshare: false,
+          enable_screenshare: true,
           enable_chat: false,
           enable_knocking: false,
-          start_video_off: false,
+          start_video_off: true,
           start_audio_off: true,
         },
       }),
@@ -133,8 +136,6 @@ export async function GET(_request: Request, context: Context) {
       ? { url: savedRoom.room_url, name: savedRoom.room_name }
       : null;
 
-  // A previously deleted Daily room used to cause an opaque client-side failure.
-  // Verify it and rebuild it with the same name before asking the browser to join.
   if (room) {
     const check = await fetch(
       `https://api.daily.co/v1/rooms/${encodeURIComponent(room.name)}`,
