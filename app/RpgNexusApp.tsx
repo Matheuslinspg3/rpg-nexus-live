@@ -878,11 +878,14 @@ export default function RpgNexusApp({ initialUser }: { initialUser: User | null 
                     <span>◆</span><b style={{ background: person.color }}>{person.displayName}</b>
                   </div>
                 ))}
-            {activeLayout.id === "SHADOWMANCER" ? (
-              <ShadowmancerSheet fallbackName={selectedCharacter.name} layout={activeLayout} fields={fields} onChange={updateField} onFocus={focusField} editingMap={editingMap} />
-            ) : (
-              <NimbleClassPanel layout={activeLayout} fields={fields} onChange={updateField} onFocus={focusField} editingMap={editingMap} fallbackName={selectedCharacter.name} />
-            )}
+            <div className="desktop-nimble-sheet">
+              {activeLayout.id === "SHADOWMANCER" ? (
+                <ShadowmancerSheet fallbackName={selectedCharacter.name} layout={activeLayout} fields={fields} onChange={updateField} onFocus={focusField} editingMap={editingMap} />
+              ) : (
+                <NimbleClassPanel layout={activeLayout} fields={fields} onChange={updateField} onFocus={focusField} editingMap={editingMap} fallbackName={selectedCharacter.name} />
+              )}
+            </div>
+            <MobileNimbleSheet layout={activeLayout} fields={fields} onChange={updateField} onFocus={focusField} editingMap={editingMap} fallbackName={selectedCharacter.name} />
             </div>
           </>}
         </section>
@@ -1065,6 +1068,146 @@ function CharacterAdminBar({ character, players, busy, layout, onLayoutChange, o
       <label><span>Atribuir ao Player</span><select value={character.assignedUserId ?? ""} onChange={(event) => onUpdate({ assignedUserId: event.target.value || null })} disabled={busy}><option value="">Não atribuída</option>{players.map((player) => <option key={player.email} value={player.email}>{player.displayName}</option>)}</select></label>
       <div className="admin-status"><i />{busy ? "Salvando..." : character.assignedDisplayName ? `Compartilhada com ${character.assignedDisplayName}` : "Visível apenas para o Mestre"}</div>
     </section>
+  );
+}
+
+
+type MobileSheetPage = "profile" | "combat" | "skills" | "journal";
+
+function MobileNimbleSheet({ layout, fields, onChange, onFocus, editingMap, fallbackName }: {
+  layout: NimbleLayoutDefinition;
+  fields: Record<string, string>;
+  onChange: (field: string, value: string) => void;
+  onFocus: (field: string | null) => void;
+  editingMap: Map<string, Presence>;
+  fallbackName: string;
+}) {
+  const [page, setPage] = useState<MobileSheetPage>("profile");
+  const portraitName = fields.characterName || fallbackName;
+  const selectedFeatures = parseClassFeatures(fields.classFeatures);
+  const pages: Array<{ id: MobileSheetPage; label: string; icon: string }> = [
+    { id: "profile", label: "Perfil", icon: "◇" },
+    { id: "combat", label: "Combate", icon: "⚔" },
+    { id: "skills", label: "Habilidades", icon: "✦" },
+    { id: "journal", label: "Diário", icon: "▤" },
+  ];
+
+  const toggleFeature = (feature: string) => {
+    const next = selectedFeatures.includes(feature)
+      ? selectedFeatures.filter((item) => item !== feature)
+      : [...selectedFeatures, feature];
+    onChange("classFeatures", JSON.stringify(next));
+  };
+
+  return (
+    <article className="character-sheet mobile-nimble-sheet" aria-label={`Ficha mobile ${layout.name}`}>
+      <header className="mobile-sheet-heading">
+        <div className={`mobile-sheet-portrait ${fields.portraitUrl ? "has-image" : ""}`}>
+          {fields.portraitUrl ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img src={fields.portraitUrl} alt={`Retrato de ${portraitName}`} />
+          ) : <span>{initials(portraitName)}</span>}
+        </div>
+        <div>
+          <p>Ficha Nimble</p>
+          <strong>{portraitName}</strong>
+          <small>{layout.name} · nível {fields.level || "—"}</small>
+        </div>
+      </header>
+
+      <nav className="mobile-sheet-tabs" role="tablist" aria-label="Seções da ficha">
+        {pages.map((item) => (
+          <button
+            type="button"
+            role="tab"
+            key={item.id}
+            aria-selected={page === item.id}
+            className={page === item.id ? "active" : ""}
+            onClick={() => setPage(item.id)}
+          >
+            <span aria-hidden="true">{item.icon}</span>{item.label}
+          </button>
+        ))}
+      </nav>
+
+      <div className="mobile-sheet-page" role="tabpanel">
+        {page === "profile" && (
+          <>
+            <div className="mobile-sheet-section-title"><span>◇</span><div><strong>Identidade</strong><small>Quem está em cena</small></div></div>
+            <div className="mobile-sheet-fields">
+              <SheetField id="characterName" label="Nome do personagem" value={fields.characterName} onChange={onChange} onFocus={onFocus} editor={editingMap.get("characterName")} />
+              <SheetField id="ancestryClassLevel" label="Ancestralidade, classe e nível" value={fields.ancestryClassLevel} onChange={onChange} onFocus={onFocus} editor={editingMap.get("ancestryClassLevel")} />
+              <SheetField id="subclass" label="Subclasse" value={fields.subclass} onChange={onChange} onFocus={onFocus} editor={editingMap.get("subclass")} />
+              <SheetField id="level" label="Nível" value={fields.level} onChange={onChange} onFocus={onFocus} editor={editingMap.get("level")} />
+              <SheetField id="heightWeightSpeed" label="Altura, peso e deslocamento" value={fields.heightWeightSpeed} onChange={onChange} onFocus={onFocus} editor={editingMap.get("heightWeightSpeed")} />
+              <SheetField id="portraitUrl" label="URL do retrato" value={fields.portraitUrl} onChange={onChange} onFocus={onFocus} editor={editingMap.get("portraitUrl")} />
+              <SheetField id="proficiencies" label="Proficiências" value={fields.proficiencies} onChange={onChange} onFocus={onFocus} editor={editingMap.get("proficiencies")} />
+            </div>
+          </>
+        )}
+
+        {page === "combat" && (
+          <>
+            <div className="mobile-sheet-section-title"><span>⚔</span><div><strong>Combate</strong><small>Valores usados na ação</small></div></div>
+            <div className="mobile-stat-grid">
+              {stats.map(([id, label]) => <SheetField key={id} id={id} label={label} value={fields[id]} onChange={onChange} onFocus={onFocus} editor={editingMap.get(id)} />)}
+            </div>
+            <div className="mobile-sheet-fields two-columns">
+              <SheetField id="hpCurrent" label="HP atual" value={fields.hpCurrent} onChange={onChange} onFocus={onFocus} editor={editingMap.get("hpCurrent")} />
+              <SheetField id="hpMax" label="HP máximo" value={fields.hpMax} onChange={onChange} onFocus={onFocus} editor={editingMap.get("hpMax")} />
+              <SheetField id="tempHp" label="HP temporário" value={fields.tempHp} onChange={onChange} onFocus={onFocus} editor={editingMap.get("tempHp")} />
+              <SheetField id="armor" label="Armadura" value={fields.armor} onChange={onChange} onFocus={onFocus} editor={editingMap.get("armor")} />
+              <SheetField id="initiative" label="Iniciativa" value={fields.initiative} onChange={onChange} onFocus={onFocus} editor={editingMap.get("initiative")} />
+              <SheetField id="hitDice" label="Dado de vida" value={fields.hitDice} onChange={onChange} onFocus={onFocus} editor={editingMap.get("hitDice")} />
+              <SheetField id="size" label="Tamanho" value={fields.size} onChange={onChange} onFocus={onFocus} editor={editingMap.get("size")} />
+              <SheetField id="speed" label="Deslocamento" value={fields.speed} onChange={onChange} onFocus={onFocus} editor={editingMap.get("speed")} />
+            </div>
+            <section className="mobile-wounds">
+              <strong>Ferimentos</strong>
+              <div>{[1,2,3,4,5].map((number) => <Wound key={number} id={`wound${number}`} checked={fields[`wound${number}`] === "true"} onChange={onChange} editor={editingMap.get(`wound${number}`)} onFocus={onFocus} />)}</div>
+            </section>
+          </>
+        )}
+
+        {page === "skills" && (
+          <>
+            <div className="mobile-sheet-section-title"><span>✦</span><div><strong>Habilidades</strong><small>Perícias e recursos de classe</small></div></div>
+            <div className="mobile-skill-grid">
+              {skills.map(([id, label, ability]) => <SheetField key={id} id={id} label={label} hint={ability} value={fields[id]} onChange={onChange} onFocus={onFocus} editor={editingMap.get(id)} />)}
+            </div>
+            {(layout.resource1 || layout.resource2 || layout.usesSpellTier) && (
+              <div className="mobile-sheet-fields two-columns">
+                {layout.resource1 && <SheetField id="classResource1Current" label={layout.resource1} value={fields.classResource1Current} onChange={onChange} onFocus={onFocus} editor={editingMap.get("classResource1Current")} />}
+                {layout.resource1 && <SheetField id="classResource1Max" label={`Máximo · ${layout.resource1}`} value={fields.classResource1Max} onChange={onChange} onFocus={onFocus} editor={editingMap.get("classResource1Max")} />}
+                {layout.resource2 && <SheetField id="classResource2Current" label={layout.resource2} value={fields.classResource2Current} onChange={onChange} onFocus={onFocus} editor={editingMap.get("classResource2Current")} />}
+                {layout.resource2 && <SheetField id="classResource2Max" label={`Máximo · ${layout.resource2}`} value={fields.classResource2Max} onChange={onChange} onFocus={onFocus} editor={editingMap.get("classResource2Max")} />}
+                {layout.usesSpellTier && <SheetField id="spellTier" label="Círculo de magia" value={fields.spellTier} onChange={onChange} onFocus={onFocus} editor={editingMap.get("spellTier")} />}
+              </div>
+            )}
+            {layout.features.length > 0 && (
+              <section className="mobile-class-features" onFocus={() => onFocus("classFeatures")} onBlur={(event) => { if (!event.currentTarget.contains(event.relatedTarget)) onFocus(null); }}>
+                <strong>{layout.featureTitle}</strong>
+                <div>{layout.features.map((feature) => {
+                  const checked = selectedFeatures.includes(feature);
+                  return <button type="button" key={feature} className={checked ? "checked" : ""} aria-pressed={checked} onClick={() => toggleFeature(feature)}>{checked ? "✓ " : ""}{feature}</button>;
+                })}</div>
+              </section>
+            )}
+          </>
+        )}
+
+        {page === "journal" && (
+          <>
+            <div className="mobile-sheet-section-title"><span>▤</span><div><strong>Diário</strong><small>Registre o que importa</small></div></div>
+            <div className="mobile-sheet-fields">
+              <SheetField id="features" label="Reações e utilidades" value={fields.features} onChange={onChange} onFocus={onFocus} editor={editingMap.get("features")} multiline />
+              <SheetField id="spells" label="Ações e ataques" value={fields.spells} onChange={onChange} onFocus={onFocus} editor={editingMap.get("spells")} multiline />
+              <SheetField id="notes" label="Inventário e anotações" value={fields.notes} onChange={onChange} onFocus={onFocus} editor={editingMap.get("notes")} multiline />
+            </div>
+          </>
+        )}
+      </div>
+    </article>
   );
 }
 
