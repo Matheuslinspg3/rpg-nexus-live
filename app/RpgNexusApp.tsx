@@ -171,6 +171,7 @@ export default function RpgNexusApp({ initialUser }: { initialUser: User | null 
   const [roomView, setRoomView] = useState<RoomView>("sheet");
   const [scene, setScene] = useState<Scene>({ hasImage: false, imageUrl: null, imageName: null, revealPercent: 0, updatedAt: null });
   const [sceneBusy, setSceneBusy] = useState(false);
+  const [scenePipOpen, setScenePipOpen] = useState(false);
   const [rolls, setRolls] = useState<DiceRoll[]>([]);
   const [rollBusy, setRollBusy] = useState(false);
   const [selectedCharacterId, setSelectedCharacterId] = useState<string | null>(null);
@@ -341,6 +342,7 @@ export default function RpgNexusApp({ initialUser }: { initialUser: User | null 
     setRoom(null);
     setPresence([]);
     setScene({ hasImage: false, imageUrl: null, imageName: null, revealPercent: 0, updatedAt: null });
+    setScenePipOpen(false);
     setRolls([]);
     setFields({});
     activeFieldRef.current = null;
@@ -695,6 +697,7 @@ export default function RpgNexusApp({ initialUser }: { initialUser: User | null 
     setPresence([]);
     setRoomView("sheet");
     setScene({ hasImage: false, imageUrl: null, imageName: null, revealPercent: 0, updatedAt: null });
+    setScenePipOpen(false);
     setRolls([]);
     setCampaigns([]);
     setFields({});
@@ -834,7 +837,7 @@ export default function RpgNexusApp({ initialUser }: { initialUser: User | null 
         </aside>
         <section className={roomView === "scene" ? "scene-workspace" : roomView === "dice" ? "dice-workspace" : roomView === "camera" ? "camera-workspace" : roomView === "shield" ? "shield-workspace" : "sheet-workspace"}>
           {roomView === "scene" ? (
-            <SceneWorkspace scene={scene} role={room.campaign.role} busy={sceneBusy} peopleHere={presence.filter((person) => person.email === room.viewerEmail || person.editingField?.startsWith("scene:"))} onUpload={(file) => void uploadScene(file)} onReveal={(value) => void updateSceneReveal(value)} />
+            <SceneWorkspace scene={scene} role={room.campaign.role} busy={sceneBusy} peopleHere={presence.filter((person) => person.email === room.viewerEmail || person.editingField?.startsWith("scene:"))} onUpload={(file) => void uploadScene(file)} onReveal={(value) => void updateSceneReveal(value)} isPipOpen={scenePipOpen} onTogglePip={() => setScenePipOpen((value) => !value)} />
           ) : roomView === "dice" ? (
             <DiceWorkspace rolls={rolls} role={room.campaign.role} viewerUserId={room.viewerEmail} busy={rollBusy} peopleHere={presence.filter((person) => person.email === room.viewerEmail || person.editingField?.startsWith("dice:"))} onRoll={(spec) => void rollDice(spec)} />
           ) : roomView === "camera" ? (
@@ -891,6 +894,7 @@ export default function RpgNexusApp({ initialUser }: { initialUser: User | null 
         </section>
       </div>
       <MobileRoomNav activeView={roomView} role={room.campaign.role} onlineCount={presence.length} onChange={switchRoomView} onOpenPanel={() => setSidebarOpen(true)} />
+      <ScenePictureInPicture scene={scene} open={scenePipOpen} onClose={() => setScenePipOpen(false)} onOpenScene={() => switchRoomView("scene")} />
     </main>
     </CameraProvider>
   );
@@ -997,13 +1001,15 @@ function DiceWorkspace({ rolls, role, viewerUserId, busy, peopleHere, onRoll }: 
   );
 }
 
-function SceneWorkspace({ scene, role, busy, peopleHere, onUpload, onReveal }: {
+function SceneWorkspace({ scene, role, busy, peopleHere, onUpload, onReveal, isPipOpen, onTogglePip }: {
   scene: Scene;
   role: Role;
   busy: boolean;
   peopleHere: Presence[];
   onUpload: (file: File) => void;
   onReveal: (value: number) => void;
+  isPipOpen: boolean;
+  onTogglePip: () => void;
 }) {
   const curtainStyle = {
     "--curtain-width": `${(100 - scene.revealPercent) / 2}%`,
@@ -1015,6 +1021,9 @@ function SceneWorkspace({ scene, role, busy, peopleHere, onUpload, onReveal }: {
         <div><p className="eyebrow">Projeção compartilhada</p><h1>Cena audiovisual</h1><p>A imagem fica carregada por trás da cortina e aparece para todos conforme o Mestre abre.</p></div>
         <div className="live-collaborators">{peopleHere.slice(0, 4).map((person) => <span key={person.email} className="mini-avatar" style={{ borderColor: person.color }} title={person.displayName}>{initials(person.displayName)}</span>)}<small>{peopleHere.length > 1 ? `${peopleHere.length} pessoas na cena` : "Só você na cena"}</small></div>
       </div>
+      <button className="scene-pip-button" type="button" disabled={!scene.hasImage || !scene.imageUrl} onClick={onTogglePip}>
+        {isPipOpen ? "◌ Fechar cena em PiP" : "◌ Cena em PiP"}
+      </button>
 
       {role === "master" && (
         <section className="scene-controls">
@@ -1039,6 +1048,33 @@ function SceneWorkspace({ scene, role, busy, peopleHere, onUpload, onReveal }: {
         </div>
       )}
     </div>
+  );
+}
+
+
+function ScenePictureInPicture({ scene, open, onClose, onOpenScene }: {
+  scene: Scene;
+  open: boolean;
+  onClose: () => void;
+  onOpenScene: () => void;
+}) {
+  if (!open || !scene.hasImage || !scene.imageUrl) return null;
+  const curtainStyle = {
+    "--scene-pip-curtain": `${(100 - scene.revealPercent) / 2}%`,
+  } as React.CSSProperties;
+
+  return (
+    <aside className="scene-picture-in-picture" aria-label="Cena audiovisual em picture-in-picture">
+      <div className="scene-pip-image" style={curtainStyle}>
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img src={scene.imageUrl} alt={scene.imageName || "Cena audiovisual"} />
+        <i className="scene-pip-curtain left" /><i className="scene-pip-curtain right" />
+      </div>
+      <div className="scene-pip-bar">
+        <button type="button" onClick={onOpenScene} title="Abrir a cena">◉ <span>{scene.imageName || "Cena"}</span></button>
+        <button type="button" onClick={onClose} title="Fechar picture-in-picture">×</button>
+      </div>
+    </aside>
   );
 }
 

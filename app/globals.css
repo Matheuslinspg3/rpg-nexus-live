@@ -3191,3 +3191,83 @@ button, input, textarea, select { font-family: Inter, ui-sans-serif, system-ui, 
 
   .sheet-workspace { overflow-x: hidden; }
 }
+
+
+/* Central de câmeras: mosaico, foco/tela cheia e PiP individual */
+.camera-view-switcher { display: flex; flex-wrap: wrap; gap: 8px; margin: 12px 0 4px; }
+.camera-view-switcher button, .scene-pip-button {
+  min-height: 38px;
+  border: 1px solid var(--border);
+  border-radius: 5px 12px 5px 12px;
+  padding: 7px 10px;
+  background: var(--surface);
+  color: var(--text-secondary);
+  cursor: pointer;
+  font-size: 11px;
+  font-weight: 800;
+}
+.camera-view-switcher button.active { border-color: var(--accent); background: var(--accent-subtle); color: var(--accent); }
+.camera-view-switcher button:hover, .scene-pip-button:hover { border-color: var(--accent); color: var(--accent); }
+.camera-view-switcher button:disabled, .scene-pip-button:disabled { cursor: not-allowed; opacity: .5; }
+.workspace-cameras:fullscreen { overflow: auto; padding: 28px; background: var(--void); }
+.camera-mosaic-layout, .camera-focus-layout { position: relative; margin-top: 16px; }
+.daily-participant-grid.camera-mosaic-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 16px; align-content: start; }
+.camera-empty-state { display: grid; min-height: 240px; place-items: center; border: 1px dashed var(--border); border-radius: 14px; padding: 24px; color: var(--text-secondary); text-align: center; }
+.daily-camera-tile {
+  position: relative;
+  display: grid;
+  min-height: 230px;
+  place-items: center;
+  isolation: isolate;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 8px 18px 8px 18px;
+  background: linear-gradient(145deg, var(--surface), color-mix(in srgb, var(--surface) 70%, #000));
+}
+.daily-camera-tile.has-video { border-color: var(--accent); }
+.daily-camera-tile.focused { min-height: min(68vh, 660px); }
+.daily-camera-tile video { position: absolute; z-index: 1; inset: 0; width: 100%; height: 100%; object-fit: cover; background: #050808; }
+.daily-camera-placeholder { display: grid; place-items: center; gap: 9px; padding: 20px; color: var(--text-primary); text-align: center; }
+.daily-camera-placeholder > span { display: grid; width: 72px; height: 72px; place-items: center; border: 2px solid var(--accent); border-radius: 50%; background: var(--accent-subtle); font-size: 24px; font-weight: 800; }
+.daily-camera-placeholder small { color: var(--text-secondary); }
+.daily-camera-actions { position: absolute; z-index: 3; top: 10px; right: 10px; display: flex; gap: 6px; }
+.daily-camera-actions button { width: 34px; height: 34px; min-height: 34px; border: 1px solid rgba(255,255,255,.18); border-radius: 8px; background: rgba(5,10,10,.76); color: #fff; cursor: pointer; backdrop-filter: blur(6px); }
+.daily-camera-bar { position: absolute; z-index: 2; right: 10px; bottom: 10px; left: 10px; display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.daily-camera-bar span { overflow: hidden; max-width: 72%; border-radius: 7px; padding: 5px 8px; background: rgba(5,10,10,.78); color: #fff; font-size: 12px; text-overflow: ellipsis; white-space: nowrap; backdrop-filter: blur(6px); }
+.daily-camera-notice { position: absolute; z-index: 4; top: 48px; right: 10px; border-radius: 7px; padding: 5px 7px; background: rgba(119,43,55,.92); color: #fff; font-size: 10px; }
+.camera-focus-layout { display: grid; grid-template-columns: minmax(0, 1fr) 220px; gap: 14px; align-items: start; }
+.camera-focus-primary { min-width: 0; }
+.camera-filmstrip { display: grid; gap: 10px; max-height: min(68vh, 660px); overflow-y: auto; }
+.daily-camera-tile.compact { min-height: 130px; }
+.daily-camera-tile.compact .daily-camera-placeholder > span { width: 45px; height: 45px; font-size: 16px; }
+.daily-camera-tile.compact .daily-camera-placeholder { gap: 4px; padding: 12px; font-size: 11px; }
+.daily-camera-tile.compact .daily-camera-placeholder small { display: none; }
+.daily-camera-tile.compact .daily-camera-actions { top: 6px; right: 6px; }
+.daily-camera-tile.compact .daily-camera-actions button { width: 27px; height: 27px; min-height: 27px; font-size: 11px; }
+.daily-camera-tile.compact .daily-camera-bar { right: 6px; bottom: 6px; left: 6px; }
+.daily-camera-tile.compact .daily-camera-bar span { padding: 4px 6px; font-size: 9px; }
+.camera-local-pip { position: fixed; z-index: 45; right: 18px; bottom: 18px; width: min(250px, 30vw); box-shadow: 0 14px 34px rgba(0,0,0,.45); }
+.camera-local-pip .daily-camera-tile { min-height: 140px; }
+.scene-pip-button { margin: 0 0 14px; }
+.scene-picture-in-picture { position: fixed; z-index: 48; right: 18px; bottom: 180px; width: min(360px, calc(100vw - 36px)); overflow: hidden; border: 1px solid var(--gold-accent); border-radius: 7px 18px 7px 18px; background: var(--surface); box-shadow: 0 18px 42px rgba(0,0,0,.48); }
+.scene-pip-image { position: relative; aspect-ratio: 16 / 9; overflow: hidden; background: #050505; }
+.scene-pip-image img { display: block; width: 100%; height: 100%; object-fit: cover; }
+.scene-pip-curtain { position: absolute; z-index: 1; top: 0; bottom: 0; width: var(--scene-pip-curtain); background: repeating-linear-gradient(90deg,#090b0a 0,#24151a 16%,#080607 32%); box-shadow: 0 0 18px rgba(0,0,0,.82); }
+.scene-pip-curtain.left { left: 0; border-right: 1px solid rgba(215,177,91,.25); }
+.scene-pip-curtain.right { right: 0; border-left: 1px solid rgba(215,177,91,.25); }
+.scene-pip-bar { display: flex; min-height: 38px; align-items: center; justify-content: space-between; gap: 8px; padding: 5px 7px; }
+.scene-pip-bar button { min-height: 29px; border: 0; border-radius: 6px; padding: 5px 7px; background: transparent; color: var(--text-secondary); cursor: pointer; }
+.scene-pip-bar button:first-child { display: flex; min-width: 0; align-items: center; gap: 6px; color: var(--accent); }
+.scene-pip-bar button:first-child span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+@media (max-width: 760px) {
+  .camera-view-switcher { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .camera-view-switcher button { min-width: 0; }
+  .camera-focus-layout { grid-template-columns: 1fr; }
+  .camera-filmstrip { grid-template-columns: repeat(2, minmax(0, 1fr)); max-height: none; overflow: visible; }
+  .daily-camera-tile.focused { min-height: min(52vh, 480px); }
+  .daily-participant-grid.camera-mosaic-grid { grid-template-columns: 1fr !important; }
+  .camera-local-pip { right: 10px; bottom: calc(78px + env(safe-area-inset-bottom)); width: min(156px, 43vw); }
+  .camera-local-pip .daily-camera-tile { min-height: 105px; }
+  .scene-picture-in-picture { right: 10px; bottom: calc(196px + env(safe-area-inset-bottom)); width: min(250px, calc(100vw - 20px)); }
+}

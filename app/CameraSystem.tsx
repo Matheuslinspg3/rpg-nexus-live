@@ -383,11 +383,31 @@ export type CameraRosterEntry = {
 
 export function CameraWorkspace({ people }: { people: CameraRosterEntry[] }) {
   const { isJoined, isLoading, error, participantCount, joinRoom, leaveRoom } = useCamera();
+  const [viewMode, setViewMode] = useState<"mosaic" | "focus">("mosaic");
+  const [focusedId, setFocusedId] = useState<string | null>(null);
+  const [showLocalPip, setShowLocalPip] = useState(true);
+  const [isFullscreen, setIsFullscreen] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
+  const workspaceRef = useRef<HTMLDivElement>(null);
   const onlineCount = people.filter((person) => person.isOnline).length;
 
+  useEffect(() => {
+    const sync = () => setIsFullscreen(Boolean(document.fullscreenElement));
+    document.addEventListener("fullscreenchange", sync);
+    return () => document.removeEventListener("fullscreenchange", sync);
+  }, []);
+
+  const toggleFullscreen = async () => {
+    try {
+      if (document.fullscreenElement) await document.exitFullscreen();
+      else await workspaceRef.current?.requestFullscreen();
+    } catch {
+      // Fullscreen is optional; the focus layout remains usable without it.
+    }
+  };
+
   return (
-    <div className="workspace-cameras">
+    <div className={`workspace-cameras camera-mode-${viewMode}`} ref={workspaceRef}>
       <div className="workspace-cameras-header">
         <div>
           <h3>Câmeras ({people.length})</h3>
@@ -404,10 +424,20 @@ export function CameraWorkspace({ people }: { people: CameraRosterEntry[] }) {
         )}
       </div>
       {!isJoined && <p style={{ margin: "10px 0 0", color: "var(--text-secondary)", fontSize: 12 }}>Você entra como espectador: pode ver todos sem liberar câmera ou microfone.</p>}
-      {isJoined && <CameraControls />}
+      {isJoined && (
+        <>
+          <CameraControls />
+          <div className="camera-view-switcher" role="group" aria-label="Modo de visualização das câmeras">
+            <button type="button" className={viewMode === "mosaic" ? "active" : ""} onClick={() => setViewMode("mosaic")}>▦ Mosaico</button>
+            <button type="button" className={viewMode === "focus" ? "active" : ""} onClick={() => setViewMode("focus")}>◉ Foco</button>
+            <button type="button" onClick={() => void toggleFullscreen()}>{isFullscreen ? "↙ Sair da tela cheia" : "↗ Tela cheia"}</button>
+            <button type="button" onClick={() => setShowLocalPip((value) => !value)}>{showLocalPip ? "◌ Ocultar meu PiP" : "◌ Mostrar meu PiP"}</button>
+          </div>
+        </>
+      )}
       {error && <p className="camera-error">{error}</p>}
       <div ref={containerRef} className="workspace-cameras-grid" id="daily-workspace-container" />
-      <DailyVideoGrid people={people} />
+      <DailyVideoGrid people={people} mode={viewMode} focusedId={focusedId} onFocus={setFocusedId} showLocalPip={showLocalPip} />
     </div>
   );
 }
@@ -416,12 +446,26 @@ function normalizeParticipantName(name: string | undefined) {
   return (name || "").trim().toLocaleLowerCase();
 }
 
-function DailyVideoGrid({ people = [] }: { people?: CameraRosterEntry[] }) {
+type CameraTile = { id: string; person: CameraRosterEntry; participant?: any };
+
+function DailyVideoGrid({
+  people = [],
+  mode,
+  focusedId,
+  onFocus,
+  showLocalPip,
+}: {
+  people?: CameraRosterEntry[];
+  mode: "mosaic" | "focus";
+  focusedId: string | null;
+  onFocus: (id: string) => void;
+  showLocalPip: boolean;
+}) {
   const { participants } = useCamera();
   const dailyParticipants = Object.values(participants) as any[];
   const linkedSessions = new Set<string>();
 
-  const tiles = people.map((person) => {
+  const tiles: CameraTile[] = people.map((person) => {
     const participant = dailyParticipants.find((item) =>
       normalizeParticipantName(item.user_name) === normalizeParticipantName(person.displayName)
     );
@@ -445,27 +489,71 @@ function DailyVideoGrid({ people = [] }: { people?: CameraRosterEntry[] }) {
 
   if (tiles.length === 0) {
     return (
-      <div style={{ minHeight: 280, border: "1px dashed var(--border)", borderRadius: 16, display: "grid", placeItems: "center", color: "var(--text-secondary)", textAlign: "center", padding: 24 }}>
+      <div className="camera-empty-state">
         Ainda não há participantes nesta mesa.
       </div>
     );
   }
 
+  const localTile = tiles.find((tile) => tile.participant?.local);
+  const remoteTiles = tiles.filter((tile) => !tile.participant?.local);
+  const selectedTile = remoteTiles.find((tile) => tile.id === focusedId) || remoteTiles[0] || localTile;
+  const restTiles = remoteTiles.filter((tile) => tile.id !== selectedTile?.id);
+
+  if (mode === "focus" && selectedTile) {
+    return (
+      <div className="camera-focus-layout">
+        <div className="camera-focus-primary">
+          <DailyParticipantTile participant={selectedTile.participant} person={selectedTile.person} focused onFocus={() => onFocus(selectedTile.id)} />
+        </div>
+        {restTiles.length > 0 && (
+          <div className="camera-filmstrip">
+            {restTiles.map((tile) => <DailyParticipantTile key={tile.id} compact participant={tile.participant} person={tile.person} onFocus={() => onFocus(tile.id)} />)}
+          </div>
+        )}
+        {showLocalPip && localTile && <LocalCameraPip tile={localTile} onFocus={() => onFocus(localTile.id)} />}
+      </div>
+    );
+  }
+
   return (
-    <div
-      className="daily-participant-grid"
-      style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 16, marginTop: 16, alignContent: "start" }}
-    >
-      {tiles.map((tile) => (
-        <DailyParticipantTile key={tile.id} participant={tile.participant} person={tile.person} />
-      ))}
+    <div className="camera-mosaic-layout">
+      <div className="daily-participant-grid camera-mosaic-grid">
+        {remoteTiles.length > 0 ? remoteTiles.map((tile) => (
+          <DailyParticipantTile key={tile.id} participant={tile.participant} person={tile.person} onFocus={() => onFocus(tile.id)} />
+        )) : (
+          <div className="camera-empty-state">Você entrou primeiro. Aguarde os outros participantes ou mantenha esta sala aberta.</div>
+        )}
+      </div>
+      {showLocalPip && localTile && <LocalCameraPip tile={localTile} onFocus={() => onFocus(localTile.id)} />}
     </div>
   );
 }
 
-function DailyParticipantTile({ participant, person }: { participant?: any; person: CameraRosterEntry }) {
+function LocalCameraPip({ tile, onFocus }: { tile: CameraTile; onFocus: () => void }) {
+  return (
+    <aside className="camera-local-pip" aria-label="Sua prévia em picture-in-picture">
+      <DailyParticipantTile compact participant={tile.participant} person={tile.person} onFocus={onFocus} />
+    </aside>
+  );
+}
+
+function DailyParticipantTile({
+  participant,
+  person,
+  compact = false,
+  focused = false,
+  onFocus,
+}: {
+  participant?: any;
+  person: CameraRosterEntry;
+  compact?: boolean;
+  focused?: boolean;
+  onFocus?: () => void;
+}) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const audioRef = useRef<HTMLAudioElement>(null);
+  const [pipNotice, setPipNotice] = useState("");
   const screenTrack = participant?.tracks?.screenVideo?.persistentTrack as MediaStreamTrack | undefined;
   const cameraTrack = participant?.tracks?.video?.persistentTrack as MediaStreamTrack | undefined;
   const videoTrack = screenTrack || cameraTrack;
@@ -475,51 +563,34 @@ function DailyParticipantTile({ participant, person }: { participant?: any; pers
 
   useEffect(() => {
     const audioTrack = participant?.tracks?.audio?.persistentTrack as MediaStreamTrack | undefined;
-    if (videoRef.current && videoTrack) {
-      videoRef.current.srcObject = new MediaStream([videoTrack]);
-    }
-    if (audioRef.current && audioTrack) {
-      audioRef.current.srcObject = new MediaStream([audioTrack]);
-    }
+    if (videoRef.current && videoTrack) videoRef.current.srcObject = new MediaStream([videoTrack]);
+    if (audioRef.current && audioTrack) audioRef.current.srcObject = new MediaStream([audioTrack]);
   }, [participant, videoTrack]);
+
+  const openNativePip = async () => {
+    if (!videoRef.current || !videoTrack) return;
+    try {
+      if (!document.pictureInPictureEnabled) throw new Error("unsupported");
+      if (document.pictureInPictureElement && document.pictureInPictureElement !== videoRef.current) {
+        await document.exitPictureInPicture();
+      }
+      await videoRef.current.requestPictureInPicture();
+      setPipNotice("");
+    } catch {
+      setPipNotice("PiP não disponível neste navegador.");
+    }
+  };
 
   const label = participant?.user_name || person.displayName;
   const roleLabel = person.role === "master" ? "Mestre" : "Jogador";
   const hasVideo = isScreenSharing || isCamOn;
 
   return (
-    <article
-      style={{
-        position: "relative",
-        minHeight: 220,
-        background: "linear-gradient(145deg, var(--surface), color-mix(in srgb, var(--surface) 70%, #000))",
-        border: `1px solid ${hasVideo ? "var(--accent)" : "var(--border)"}`,
-        borderRadius: 16,
-        overflow: "hidden",
-        display: "grid",
-        placeItems: "center",
-        isolation: "isolate",
-      }}
-    >
-      <div style={{ display: "grid", placeItems: "center", gap: 10, color: "var(--text-primary)", textAlign: "center", padding: 20 }}>
-        <span
-          style={{
-            width: 72,
-            height: 72,
-            display: "grid",
-            placeItems: "center",
-            borderRadius: 999,
-            border: `2px solid ${person.color || "var(--accent)"}`,
-            background: "color-mix(in srgb, var(--accent) 12%, transparent)",
-            color: person.color || "var(--accent)",
-            fontSize: 24,
-            fontWeight: 800,
-          }}
-        >
-          {label.slice(0, 1).toUpperCase() || "?"}
-        </span>
+    <article className={`daily-camera-tile ${compact ? "compact" : ""} ${focused ? "focused" : ""} ${hasVideo ? "has-video" : ""}`}>
+      <div className="daily-camera-placeholder">
+        <span style={{ borderColor: person.color || "var(--accent)", color: person.color || "var(--accent)" }}>{label.slice(0, 1).toUpperCase() || "?"}</span>
         <strong>{label}</strong>
-        <small style={{ color: "var(--text-secondary)" }}>{person.isOnline ? roleLabel : "Offline"}</small>
+        <small>{person.isOnline ? roleLabel : "Offline"}</small>
       </div>
 
       {hasVideo && (
@@ -528,18 +599,18 @@ function DailyParticipantTile({ participant, person }: { participant?: any; pers
           autoPlay
           playsInline
           muted={participant?.local}
-          style={{ position: "absolute", inset: 0, zIndex: 1, width: "100%", height: "100%", objectFit: "cover", background: "#050808" }}
         />
       )}
 
-      <div style={{ position: "absolute", zIndex: 2, inset: "auto 10px 10px 10px", display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
-        <span style={{ background: "rgba(5, 10, 10, 0.78)", color: "#fff", fontSize: 12, padding: "5px 8px", borderRadius: 7, backdropFilter: "blur(6px)" }}>
-          {label}{isScreenSharing ? " · Tela" : ""}
-        </span>
-        <span style={{ background: "rgba(5, 10, 10, 0.78)", color: "#fff", fontSize: 12, padding: "5px 8px", borderRadius: 7, backdropFilter: "blur(6px)" }}>
-          {isScreenSharing ? "🖥" : isCamOn ? "📹" : "◌"} {isMicOn ? "🎙" : "🔇"}
-        </span>
+      <div className="daily-camera-actions">
+        {onFocus && <button type="button" onClick={onFocus} title="Focar esta câmera">◉</button>}
+        {hasVideo && <button type="button" onClick={() => void openNativePip()} title="Abrir esta câmera em Picture-in-Picture">↗</button>}
       </div>
+      <div className="daily-camera-bar">
+        <span>{label}{isScreenSharing ? " · Tela" : ""}</span>
+        <span>{isScreenSharing ? "🖥" : isCamOn ? "📹" : "◌"} {isMicOn ? "🎙" : "🔇"}</span>
+      </div>
+      {pipNotice && <small className="daily-camera-notice">{pipNotice}</small>}
       {participant && <audio ref={audioRef} autoPlay playsInline />}
     </article>
   );
