@@ -11,6 +11,7 @@ type CameraContextValue = {
   error: string;
   isJoined: boolean;
   participantCount: number;
+  participants: Record<string, any>;
   joinRoom: (container?: HTMLElement | null) => Promise<void>;
   leaveRoom: () => void;
 };
@@ -38,6 +39,7 @@ export function CameraProvider({
   const [error, setError] = useState("");
   const [isJoined, setIsJoined] = useState(false);
   const [participantCount, setParticipantCount] = useState(0);
+  const [participants, setParticipants] = useState<Record<string, any>>({});
   const callRef = useRef<DailyCall | null>(null);
   const pendingContainerRef = useRef<HTMLElement | null>(null);
 
@@ -53,6 +55,7 @@ export function CameraProvider({
     pendingContainerRef.current = null;
     setIsJoined(false);
     setParticipantCount(0);
+    setParticipants({});
   }, []);
 
   const joinRoom = useCallback(async (container?: HTMLElement | null) => {
@@ -87,23 +90,25 @@ export function CameraProvider({
       } as any);
       callRef.current = callObject;
 
+      const refreshParticipants = () => {
+        const next = { ...callObject.participants() };
+        setParticipants(next);
+        setParticipantCount(Object.keys(next).length);
+      };
+
       callObject.on("joined-meeting", () => {
         setIsJoined(true);
         setIsLoading(false);
-        setParticipantCount(Object.keys(callObject.participants()).length);
+        refreshParticipants();
       });
-
-      callObject.on("participant-joined", () => {
-        setParticipantCount(Object.keys(callObject.participants()).length);
-      });
-
-      callObject.on("participant-left", () => {
-        setParticipantCount(Object.keys(callObject.participants()).length);
-      });
+      callObject.on("participant-joined", refreshParticipants);
+      callObject.on("participant-left", refreshParticipants);
+      callObject.on("participant-updated", refreshParticipants);
 
       callObject.on("left-meeting", () => {
         setIsJoined(false);
         setParticipantCount(0);
+        setParticipants({});
       });
 
       callObject.on("error", (event: any) => {
@@ -156,10 +161,11 @@ export function CameraProvider({
       error,
       isJoined,
       participantCount,
+      participants,
       joinRoom,
       leaveRoom,
     }),
-    [isLoading, error, isJoined, participantCount, joinRoom, leaveRoom]
+    [isLoading, error, isJoined, participantCount, participants, joinRoom, leaveRoom]
   );
 
   return <CameraContext.Provider value={value}>{children}</CameraContext.Provider>;
@@ -229,38 +235,10 @@ export function CameraWorkspace() {
 }
 
 function DailyVideoGrid() {
-  const [participants, setParticipants] = useState<Record<string, any>>({});
-
-  useEffect(() => {
-    const call = (DailyIframe as any).getCallInstance?.() as DailyCall | null;
-    if (!call) return;
-
-    const update = () => setParticipants({ ...call.participants() });
-    call.on("participant-joined", update);
-    call.on("participant-left", update);
-    call.on("participant-updated", update);
-    call.on("joined-meeting", update);
-    update();
-    return () => {
-      try {
-        call.off("participant-joined", update);
-        call.off("participant-left", update);
-        call.off("participant-updated", update);
-        call.off("joined-meeting", update);
-      } catch {}
-    };
-  }, []);
-
+  const { participants } = useCamera();
   const list = Object.values(participants) as any[];
   if (list.length === 0) return null;
-
-  return (
-    <div className="daily-participant-grid" style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(160px, 1fr))", gap: 12, marginTop: 16 }}>
-      {list.map((p) => (
-        <DailyParticipantTile key={p.session_id} participant={p} />
-      ))}
-    </div>
-  );
+  return <div className="daily-participant-grid" style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(160px, 1fr))", gap: 12, marginTop: 16 }}>{list.map((p) => <DailyParticipantTile key={p.session_id} participant={p} />)}</div>;
 }
 
 function DailyParticipantTile({ participant }: { participant: any }) {
