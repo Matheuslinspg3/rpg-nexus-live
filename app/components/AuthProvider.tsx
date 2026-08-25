@@ -1,6 +1,14 @@
 'use client'
 
-import { createContext, useContext, useEffect, useState, type ReactNode } from 'react'
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useRef,
+  useState,
+  type ReactNode,
+} from 'react'
 import { createBrowserClient } from '@/lib/supabase'
 import type { User } from '@supabase/supabase-js'
 
@@ -17,9 +25,11 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined)
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null)
   const [loading, setLoading] = useState(true)
-  const supabase = createBrowserClient()
+  const supabaseRef = useRef(createBrowserClient())
 
   useEffect(() => {
+    const supabase = supabaseRef.current
+
     // Check active session
     supabase.auth.getSession().then(({ data: { session } }) => {
       setUser(session?.user ?? null)
@@ -34,14 +44,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     })
 
     return () => subscription.unsubscribe()
-  }, [supabase])
+  }, [])
 
-  const signIn = async (email: string, password: string) => {
+  const signIn = useCallback(async (email: string, password: string) => {
+    const supabase = supabaseRef.current
     const { error } = await supabase.auth.signInWithPassword({ email, password })
     return { error }
-  }
+  }, [])
 
-  const signUp = async (email: string, password: string, username: string) => {
+  const signUp = useCallback(async (email: string, password: string, username: string) => {
+    const supabase = supabaseRef.current
     const { error } = await supabase.auth.signUp({
       email,
       password,
@@ -53,11 +65,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       },
     })
     return { error }
-  }
+  }, [])
 
-  const signOut = async () => {
+  const signOut = useCallback(async () => {
+    const supabase = supabaseRef.current
     await supabase.auth.signOut()
-  }
+  }, [])
 
   return (
     <AuthContext.Provider value={{ user, loading, signIn, signUp, signOut }}>
