@@ -27,14 +27,38 @@ export async function GET(request: Request, context: Context) {
 
   const { data: existing } = await supabase
     .from("camera_rooms")
-    .select("room_url")
+    .select("room_url, room_name")
     .eq("campaign_id", member.campaignId)
     .single();
 
-  if (existing?.room_url) return Response.json({ roomUrl: existing.room_url });
-
   const dailyApiKey = process.env.DAILY_API_KEY;
   if (!dailyApiKey) return Response.json({ error: "Daily.co API key not configured." }, { status: 500 });
+
+  async function createMeetingToken(roomName: string): Promise<string | null> {
+    try {
+      const tokenRes = await fetch("https://api.daily.co/v1/meeting-tokens", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${dailyApiKey}` },
+        body: JSON.stringify({ properties: { room_name: roomName, is_owner: true } }),
+      });
+      if (!tokenRes.ok) {
+        const errText = await tokenRes.text();
+        console.error("Daily token error:", errText);
+        return null;
+      }
+      const tokenData = (await tokenRes.json()) as { token: string };
+      return tokenData.token;
+    } catch (e) {
+      console.error("Daily token exception:", e);
+      return null;
+    }
+  }
+
+  if (existing?.room_url && (existing as any).room_name) {
+    const token = await createMeetingToken((existing as any).room_name);
+    if (!token) return Response.json({ error: "Failed to create meeting token." }, { status: 500 });
+    return Response.json({ roomUrl: existing.room_url, token });
+  }
 
   const roomName = `rpg-nexus-${member.campaignId}`;
   try {
@@ -70,7 +94,9 @@ export async function GET(request: Request, context: Context) {
     });
     if (insertError) return Response.json({ error: "Falha ao salvar a sala." }, { status: 500 });
 
-    return Response.json({ roomUrl: room.url });
+    const token = await createMeetingToken(room.name);
+    if (!token) return Response.json({ error: "Failed to create meeting token." }, { status: 500 });
+    return Response.json({ roomUrl: room.url, token });
   } catch (error) {
     console.error("Failed to create Daily.co room:", error);
     return Response.json({ error: "Failed to create room." }, { status: 500 });

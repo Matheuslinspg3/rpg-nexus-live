@@ -49,9 +49,12 @@ export function CameraProvider({
     try {
       // Get or create room
       const response = await fetch(`/api/campaigns/${campaignCode}/camera`);
-      if (!response.ok) throw new Error("Failed to get camera room");
+      if (!response.ok) {
+        const errBody = await response.json().catch(() => ({})) as { error?: string };
+        throw new Error(errBody.error || "Failed to get camera room");
+      }
       
-      const data = await response.json() as { roomUrl: string };
+      const data = await response.json() as { roomUrl: string; token: string };
       roomUrlRef.current = data.roomUrl;
 
       // Create Daily call object
@@ -81,6 +84,7 @@ export function CameraProvider({
       // Join the room
       await callObject.join({
         url: data.roomUrl,
+        token: data.token,
         userName: user.displayName,
       });
 
