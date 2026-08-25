@@ -3,6 +3,8 @@ import { requireUser, db } from "@/lib/api-helpers";
 export const dynamic = "force-dynamic";
 
 type Context = { params: Promise<{ code: string }> };
+type Role = "master" | "player";
+type DailyRoom = { url: string; name: string };
 
 async function getMembershipId(supabase: any, code: string, email: string) {
   const { data } = await supabase
@@ -11,66 +13,59 @@ async function getMembershipId(supabase: any, code: string, email: string) {
     .eq("code", code.toUpperCase())
     .eq("campaign_members.email", email)
     .single();
+
   if (!data) return null;
-  return { campaignId: data.id as string, role: (data.campaign_members as any[])[0].role as "master" | "player" };
+  return {
+    campaignId: data.id as string,
+    role: (data.campaign_members as any[])[0].role as Role,
+  };
 }
 
-// GET /api/campaigns/:code/camera - Get or create Daily.co room
-export async function GET(request: Request, context: Context) {
-  const user = await requireUser();
-  if (!user || !user.email) return Response.json({ error: "Não autenticado." }, { status: 401 });
+function dailyHeaders(apiKey: string) {
+  return {
+    "Content-Type": "application/json",
+    Authorization: `Bearer ${apiKey}`,
+  };
+}
 
-  const { code } = await context.params;
-  const supabase = db();
-  const member = await getMembershipId(supabase, code, user.email);
-  if (!member) return Response.json({ error: "Campanha não encontrada." }, { status: 404 });
+async function createMeetingToken(apiKey: string, roomName: string, role: Role) {
+  try {
+    const response = await fetch("https://api.daily.co/v1/meeting-tokens", {
+      method: "POST",
+      headers: dailyHeaders(apiKey),
+      body: JSON.stringify({
+        properties: {
+          room_name: roomName,
+          // Players do not receive room-owner privileges.
+          is_owner: role === "master",
+        },
+      }),
+    });
 
-  const { data: existing } = await supabase
-    .from("camera_rooms")
-    .select("room_url, room_name")
-    .eq("campaign_id", member.campaignId)
-    .single();
-
-  const dailyApiKey = process.env.DAILY_API_KEY;
-  if (!dailyApiKey || dailyApiKey.length < 20) {
-    console.error("Daily API key missing or placeholder:", dailyApiKey);
-    return Response.json({ error: "Câmeras desabilitadas — DAILY_API_KEY não configurado no servidor. Configure uma chave válida em dashboard.daily.co no Vercel." }, { status: 503 });
-  }
-
-  async function createMeetingToken(roomName: string): Promise<string | null> {
-    try {
-      const tokenRes = await fetch("https://api.daily.co/v1/meeting-tokens", {
-        method: "POST",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${dailyApiKey}` },
-        body: JSON.stringify({ properties: { room_name: roomName, is_owner: true } }),
-      });
-      if (!tokenRes.ok) {
-        const errText = await tokenRes.text();
-        console.error("Daily token error:", errText);
-        if (errText.includes("401") || errText.includes("Unauthorized") || errText.includes("invalid")) {
-          console.error("Daily API key rejected - invalid key");
-        }
-        return null;
-      }
-      const tokenData = (await tokenRes.json()) as { token: string };
-      return tokenData.token;
-    } catch (e) {
-      console.error("Daily token exception:", e);
-      return null;
+    if (!response.ok) {
+      const detail = await response.text();
+      console.error("Daily token error:", response.status, detail);
+      return { token: null, error: "Daily.co recusou o token da sala. Verifique DAILY_API_KEY no Vercel." };
     }
-  }
 
-  if (existing?.room_url && (existing as any).room_name) {
-    const token = await createMeetingToken((existing as any).room_name);
-    if (!token) return Response.json({ error: "Falha ao criar token da sala — verifique se DAILY_API_KEY é válida em dashboard.daily.co." }, { status: 503 });
-    return Response.json({ roomUrl: existing.room_url, token });
-  }
+    const data = (await response.json()) as { token?: string };
+    if (!data.token) {
+      console.error("Daily token response did not contain a token");
+      return { token: null, error: "Daily.co não retornou um token válido para a sala." };
+    }
 
-  const roomName = `rpg-nexus-${member.campaignId}`;
+    return { token: data.token, error: null };
+  } catch (error) {
+    console.error("Daily token exception:", error);
+    return { token: null, error: "Não foi possível falar com o Daily.co para criar o token." };
+  }
+}
+
+async function createDailyRoom(apiKey: string, roomName: string) {
   try {
     const response = await fetch("https://api.daily.co/v1/rooms", {
       method: "POST",
-      headers: { "Content-Type": "application/json", Authorization: `Bearer ${dailyApiKey}` },
+      headers: dailyHeaders(apiKey),
       body: JSON.stringify({
         name: roomName,
         privacy: "private",
@@ -86,28 +81,116 @@ export async function GET(request: Request, context: Context) {
     });
 
     if (!response.ok) {
-      const error = await response.text();
-      console.error("Daily.co error:", error);
-      if (error.includes("401") || error.includes("Unauthorized")) {
-        return Response.json({ error: "Daily.co rejeitou a API key — configure DAILY_API_KEY válida no Vercel." }, { status: 503 });
-      }
-      return Response.json({ error: "Falha ao criar sala de vídeo." }, { status: 500 });
+      const detail = await response.text();
+      console.error("Daily room creation error:", response.status, detail);
+      return {
+        room: null,
+        error:
+          response.status === 401 || response.status === 403
+            ? "Daily.co rejeitou a API key. Configure DAILY_API_KEY válida no Vercel."
+            : "Daily.co não conseguiu criar a sala de vídeo.",
+      };
     }
 
-    const room = (await response.json()) as { url: string; name: string };
+    return { room: (await response.json()) as DailyRoom, error: null };
+  } catch (error) {
+    console.error("Daily room creation exception:", error);
+    return { room: null, error: "Não foi possível falar com o Daily.co para criar a sala." };
+  }
+}
+
+// GET /api/campaigns/:code/camera - Get or create a Daily.co room and a fresh token.
+export async function GET(_request: Request, context: Context) {
+  const user = await requireUser();
+  if (!user?.email) {
+    return Response.json({ error: "Não autenticado." }, { status: 401 });
+  }
+
+  const { code } = await context.params;
+  const supabase = db();
+  const member = await getMembershipId(supabase, code, user.email);
+  if (!member) {
+    return Response.json({ error: "Campanha não encontrada." }, { status: 404 });
+  }
+
+  const dailyApiKey = process.env.DAILY_API_KEY;
+  if (!dailyApiKey || dailyApiKey.length < 20) {
+    console.error("DAILY_API_KEY is missing or invalid.");
+    return Response.json(
+      { error: "Câmeras desabilitadas: configure DAILY_API_KEY válida no Vercel." },
+      { status: 503 }
+    );
+  }
+
+  const { data: savedRoom } = await supabase
+    .from("camera_rooms")
+    .select("room_url, room_name")
+    .eq("campaign_id", member.campaignId)
+    .maybeSingle();
+
+  let room: DailyRoom | null =
+    savedRoom?.room_url && savedRoom?.room_name
+      ? { url: savedRoom.room_url, name: savedRoom.room_name }
+      : null;
+
+  // A previously deleted Daily room used to cause an opaque client-side failure.
+  // Verify it and rebuild it with the same name before asking the browser to join.
+  if (room) {
+    const check = await fetch(
+      `https://api.daily.co/v1/rooms/${encodeURIComponent(room.name)}`,
+      { headers: dailyHeaders(dailyApiKey) }
+    );
+
+    if (check.status === 404) {
+      const rebuilt = await createDailyRoom(dailyApiKey, room.name);
+      if (!rebuilt.room) {
+        return Response.json({ error: rebuilt.error }, { status: 503 });
+      }
+
+      room = rebuilt.room;
+      const { error: updateError } = await supabase
+        .from("camera_rooms")
+        .update({ room_url: room.url, room_name: room.name })
+        .eq("campaign_id", member.campaignId);
+
+      if (updateError) {
+        console.error("Could not update rebuilt Daily room:", updateError);
+        return Response.json({ error: "A sala de vídeo foi recriada, mas não pôde ser salva." }, { status: 500 });
+      }
+    } else if (!check.ok) {
+      const detail = await check.text();
+      console.error("Daily room validation error:", check.status, detail);
+      return Response.json(
+        { error: "Não foi possível validar a sala Daily. Verifique DAILY_API_KEY no Vercel." },
+        { status: 503 }
+      );
+    }
+  }
+
+  if (!room) {
+    const created = await createDailyRoom(dailyApiKey, `rpg-nexus-${member.campaignId}`);
+    if (!created.room) {
+      return Response.json({ error: created.error }, { status: 503 });
+    }
+
+    room = created.room;
     const { error: insertError } = await supabase.from("camera_rooms").insert({
       campaign_id: member.campaignId,
       room_url: room.url,
       room_name: room.name,
       created_at: new Date().toISOString(),
     });
-    if (insertError) return Response.json({ error: "Falha ao salvar a sala." }, { status: 500 });
 
-    const token = await createMeetingToken(room.name);
-    if (!token) return Response.json({ error: "Falha ao criar token — verifique DAILY_API_KEY." }, { status: 503 });
-    return Response.json({ roomUrl: room.url, token });
-  } catch (error) {
-    console.error("Failed to create Daily.co room:", error);
-    return Response.json({ error: "Failed to create room." }, { status: 500 });
+    if (insertError) {
+      console.error("Could not save Daily room:", insertError);
+      return Response.json({ error: "A sala de vídeo foi criada, mas não pôde ser salva." }, { status: 500 });
+    }
   }
+
+  const meetingToken = await createMeetingToken(dailyApiKey, room.name, member.role);
+  if (!meetingToken.token) {
+    return Response.json({ error: meetingToken.error }, { status: 503 });
+  }
+
+  return Response.json({ roomUrl: room.url, token: meetingToken.token });
 }
