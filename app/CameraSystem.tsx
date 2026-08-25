@@ -130,10 +130,12 @@ export function CameraProvider({
       }
 
       const data = await response.json() as { roomUrl: string; token: string };
-      // Joining as a spectator does not request camera or microphone permission.
+      // Media is initially OFF through the Daily room/token. Sources must remain
+      // available, though: setting either source to false permanently prevents
+      // setLocalVideo()/setLocalAudio() from enabling it later.
       const callObject = DailyIframe.createCallObject({
-        audioSource: false,
-        videoSource: false,
+        audioSource: true,
+        videoSource: true,
       } as any);
       callRef.current = callObject;
 
@@ -252,7 +254,12 @@ export function CameraProvider({
       refreshParticipantsRef.current?.();
     } catch (err) {
       console.error("Could not change screen sharing state:", err);
-      setError(isScreenSharing ? "Não foi possível parar o compartilhamento." : "O compartilhamento de tela não foi iniciado.");
+      const detail = err instanceof Error ? err.message.toLowerCase() : "";
+      if (/notallowed|permission|blocked-by-browser/.test(detail)) {
+        setError("O navegador bloqueou a transmissão de tela. Permita o compartilhamento quando ele for solicitado e tente novamente.");
+      } else {
+        setError(isScreenSharing ? "Não foi possível parar o compartilhamento." : "O compartilhamento de tela não foi iniciado.");
+      }
     } finally {
       setIsMediaBusy(false);
     }
