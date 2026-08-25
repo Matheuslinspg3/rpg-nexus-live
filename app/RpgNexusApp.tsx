@@ -786,7 +786,7 @@ export default function RpgNexusApp({ initialUser }: { initialUser: User | null 
     <CameraProvider campaignCode={room.campaign.code} user={{ id: user.id, displayName: user.displayName }} role={room.campaign.role}>
     <main className="room-page">
       <header className="room-header">
-        <button className="room-brand" onClick={leaveRoom}><span className="brand-mark small">N</span><span>RPG NEXUS</span></button>
+        <button className="room-brand" onClick={leaveRoom}><span className="brand-mark small">C</span><span>CIANNA'S STAGE</span></button>
         <div className="room-heading"><div className="room-title"><strong>{room.campaign.name}</strong><span>{room.campaign.system}</span></div><nav className="room-tabs" aria-label="Áreas da campanha"><button className={roomView === "shield" ? "active" : ""} onClick={() => switchRoomView("shield")}>{room.campaign.role === "master" ? "Escudo do Mestre" : "Escudo do Player"}</button><button className={roomView === "sheet" ? "active" : ""} onClick={() => switchRoomView("sheet")}>Ficha</button><button className={roomView === "scene" ? "active" : ""} onClick={() => switchRoomView("scene")}>Cena</button><button className={roomView === "dice" ? "active" : ""} onClick={() => switchRoomView("dice")}>Dados</button><button className={roomView === "camera" ? "active" : ""} onClick={() => switchRoomView("camera")}>Câmeras</button></nav></div>
         <button className="room-code" onClick={() => void copyCode()} title="Copiar código"><span>Código</span><strong>{room.campaign.code}</strong><i>⧉</i></button>
         <div className={`save-state save-${saveState}`}><i />{saveState === "saved" ? "Sincronizado" : saveState === "saving" ? "Salvando" : "Reconectando"}</div>
@@ -1151,7 +1151,7 @@ function NimbleClassPanel({ layout, fields, onChange, onFocus, editingMap, fallb
           <SheetField id="features" label="Reactions & Utility" value={fields.features} onChange={onChange} onFocus={onFocus} editor={editingMap.get("features")} multiline />
           <SheetField id="spells" label="Actions & Attacks" value={fields.spells} onChange={onChange} onFocus={onFocus} editor={editingMap.get("spells")} multiline />
         </div>
-        <footer className="nimble-sheet-footer"><span>RPG NEXUS</span><p>Layout {layout.name} · sincronizado em tempo real</p><span>NIMBLE</span></footer>
+        <footer className="nimble-sheet-footer"><span>CIANNA'S STAGE</span><p>Layout {layout.name} · sincronizado em tempo real</p><span>NIMBLE</span></footer>
       </section>
     </div>
   );
@@ -1241,14 +1241,14 @@ function ShadowmancerSheet({ fallbackName, layout, fields, onChange, onFocus, ed
           <SheetField id="features" label="Reactions & Utility" value={fields.features} onChange={onChange} onFocus={onFocus} editor={editingMap.get("features")} multiline />
           <SheetField id="spells" label="Actions & Attacks" value={fields.spells} onChange={onChange} onFocus={onFocus} editor={editingMap.get("spells")} multiline />
         </div>
-        <footer className="shadow-sheet-footer"><span>RPG NEXUS</span><p>Layout Shadowmancer · sincronizado em tempo real</p><span>NIMBLE</span></footer>
+        <footer className="shadow-sheet-footer"><span>CIANNA'S STAGE</span><p>Layout Shadowmancer · sincronizado em tempo real</p><span>NIMBLE</span></footer>
       </section>
     </div>
   );
 }
 
 function AppHeader({ user, onLogout }: { user: User; onLogout: () => void }) {
-  return <header className="app-header"><div className="brand-lockup"><span className="brand-mark small">N</span><span>RPG NEXUS</span></div><div className="header-user"><span className="avatar self">{initials(user.displayName)}</span><div><strong>{user.displayName}</strong><small>@{user.username}</small></div><button onClick={onLogout} title="Sair" aria-label="Sair da conta">↗</button></div></header>;
+  return <header className="app-header"><div className="brand-lockup"><span className="brand-mark small">N</span><span>CIANNA'S STAGE</span></div><div className="header-user"><span className="avatar self">{initials(user.displayName)}</span><div><strong>{user.displayName}</strong><small>@{user.username}</small></div><button onClick={onLogout} title="Sair" aria-label="Sair da conta">↗</button></div></header>;
 }
 
 function SheetField({ id, label, hint, value = "", onChange, onFocus, editor, compact = false, multiline = false }: {
