@@ -190,7 +190,8 @@ export default function RpgNexusApp({ initialUser }: { initialUser: User | null 
   const roomCodeRef = useRef<string | null>(null);
   const selectedCharacterRef = useRef<string | null>(null);
   const roomViewRef = useRef<RoomView>("sheet");
-  const cursorRef = useRef({ x: 0.5, y: 0.5 });
+  // A null point means the pointer is outside the editable character sheet.
+  const cursorRef = useRef<{ x: number | null; y: number | null }>({ x: null, y: null });
   const lastPresenceSent = useRef(0);
   const presenceSendingRef = useRef(false);
   const presenceQueuedRef = useRef(false);
@@ -440,7 +441,24 @@ export default function RpgNexusApp({ initialUser }: { initialUser: User | null 
     roomTimer = window.setTimeout(() => void pollRoom(), 2400);
     const heartbeat = window.setInterval(() => void sendPresence(), 3_000);
     const trackCursor = (event: PointerEvent) => {
-      cursorRef.current = { x: event.clientX / window.innerWidth, y: event.clientY / window.innerHeight };
+      const target = event.target;
+      const sheet = target instanceof Element ? target.closest(".character-sheet") : null;
+      const isOnSheet = roomViewRef.current === "sheet" && sheet;
+
+      if (!isOnSheet) {
+        if (cursorRef.current.x !== null || cursorRef.current.y !== null) {
+          cursorRef.current = { x: null, y: null };
+          lastPresenceSent.current = Date.now();
+          void sendPresence();
+        }
+        return;
+      }
+
+      const bounds = sheet.getBoundingClientRect();
+      cursorRef.current = {
+        x: Math.max(0, Math.min(1, (event.clientX - bounds.left) / bounds.width)),
+        y: Math.max(0, Math.min(1, (event.clientY - bounds.top) / bounds.height)),
+      };
       if (Date.now() - lastPresenceSent.current > 90) {
         lastPresenceSent.current = Date.now();
         void sendPresence();
@@ -848,6 +866,17 @@ export default function RpgNexusApp({ initialUser }: { initialUser: User | null 
             </div>
             {room.campaign.role === "master" && <CharacterAdminBar key={selectedCharacter.id} character={selectedCharacter} players={players} busy={characterAction} layout={activeLayout.id} onLayoutChange={changeCharacterLayout} onUpdate={(changes) => void updateCharacter(selectedCharacter.id, changes)} />}
             <div className={`character-sheet nimble-layout-${activeLayout.id.toLowerCase().replace("_", "-")}`} onPointerDown={() => setSidebarOpen(false)}>
+              {cursorOthers
+                .filter((person) => person.cursorX !== null && person.cursorY !== null)
+                .map((person) => (
+                  <div
+                    key={person.email}
+                    className="sheet-remote-cursor"
+                    style={{ "--cursor-x": `${(person.cursorX ?? 0) * 100}%`, "--cursor-y": `${(person.cursorY ?? 0) * 100}%`, color: person.color } as React.CSSProperties}
+                  >
+                    <span>◆</span><b style={{ background: person.color }}>{person.displayName}</b>
+                  </div>
+                ))}
             {activeLayout.id === "SHADOWMANCER" ? (
               <ShadowmancerSheet fallbackName={selectedCharacter.name} layout={activeLayout} fields={fields} onChange={updateField} onFocus={focusField} editingMap={editingMap} />
             ) : (
@@ -857,9 +886,6 @@ export default function RpgNexusApp({ initialUser }: { initialUser: User | null 
           </>}
         </section>
       </div>
-      {cursorOthers.filter((person) => person.cursorX !== null && person.cursorY !== null).map((person) => (
-        <div key={person.email} className="remote-cursor" style={{ "--cursor-x": `${(person.cursorX ?? 0) * 100}vw`, "--cursor-y": `${(person.cursorY ?? 0) * 100}vh`, color: person.color } as React.CSSProperties}><span>◆</span><b style={{ background: person.color }}>{person.displayName}</b></div>
-      ))}
     </main>
     </CameraProvider>
   );
