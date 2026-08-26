@@ -3317,3 +3317,6 @@ button, input, textarea, select { font-family: Inter, ui-sans-serif, system-ui, 
   .discord-connect-card { grid-template-columns: auto 1fr; }
   .discord-connect-card .secondary-button { grid-column: 1 / -1; }
 }
+
+
+.discord-campaign-settings{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;margin:0 0 18px;padding:18px;border:1px solid rgba(88,101,242,.45);border-radius:14px;background:rgba(88,101,242,.07)}.discord-campaign-settings>div,.discord-campaign-settings>p,.discord-campaign-settings>button,.discord-toggle{grid-column:1/-1}.discord-campaign-settings h2{margin:3px 0;font-size:1.05rem}.discord-campaign-settings p{margin:0;color:var(--text-secondary);font-size:.82rem}.discord-campaign-settings label{display:grid;gap:4px}.discord-campaign-settings label span{font-weight:700;font-size:.78rem}.discord-campaign-settings label small{color:var(--text-secondary);font-size:.7rem}.discord-campaign-settings input{width:100%;min-width:0;padding:9px;border:1px solid var(--border);border-radius:8px;background:var(--surface);color:var(--text)}.discord-toggle{display:flex!important;grid-template-columns:auto 1fr;align-items:center;font-weight:700}.discord-settings-state{color:#a7efd0!important}@media(max-width:640px){.discord-campaign-settings{grid-template-columns:1fr}}
