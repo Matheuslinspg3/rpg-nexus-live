@@ -450,16 +450,16 @@ type CameraTile = { id: string; person: CameraRosterEntry; participant?: any };
 
 function DailyVideoGrid({
   people = [],
-  mode,
-  focusedId,
-  onFocus,
-  showLocalPip,
+  mode = "mosaic",
+  focusedId = null,
+  onFocus = () => undefined,
+  showLocalPip = false,
 }: {
   people?: CameraRosterEntry[];
-  mode: "mosaic" | "focus";
-  focusedId: string | null;
-  onFocus: (id: string) => void;
-  showLocalPip: boolean;
+  mode?: "mosaic" | "focus";
+  focusedId?: string | null;
+  onFocus?: (id: string) => void;
+  showLocalPip?: boolean;
 }) {
   const { participants } = useCamera();
   const dailyParticipants = Object.values(participants) as any[];
