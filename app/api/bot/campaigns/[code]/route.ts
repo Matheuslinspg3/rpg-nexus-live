@@ -16,5 +16,5 @@ export async function GET(request: Request, context: Context) {
   if (!campaign) return Response.json({ error: "Campanha não encontrada." }, { status: 404 });
   const { data: integration } = await db().from("discord_campaign_integrations").select("*").eq("campaign_id", campaign.id).single();
   if (!integration?.enabled) return Response.json({ error: "Integração Discord não ativada nesta campanha." }, { status: 409 });
-  return Response.json({ campaign: { code: campaign.code, name: campaign.name, system: campaign.system, masterName: campaign.master_name }, channels: { guildId: integration.guild_id, rpg: integration.rpg_channel_id, audiovisual: integration.audiovisual_channel_id, announcements: integration.announcements_channel_id, music: integration.music_channel_id }, policy: { pvrp: "excluded", dice: "rollem", music: "external-bot" } });
+  return Response.json({ campaign: { code: campaign.code, name: campaign.name, system: campaign.system, masterName: campaign.master_name }, channels: { guildId: integration.guild_id, audiovisualChannelId: integration.audiovisual_channel_id, diceChannelId: integration.dice_channel_id, musicChannelId: integration.music_channel_id }, policy: { pvrp: "excluded", dice: "rollem", music: "external-bot" } });
 }
