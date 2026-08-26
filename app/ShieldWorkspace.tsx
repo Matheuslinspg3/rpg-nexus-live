@@ -36,6 +36,7 @@ export function ShieldWorkspace({ campaignCode, role, characters, scene, rolls, 
   const [layout, setLayout] = useState<ShieldLayout>(DEFAULT_LAYOUT);
   const [organizing, setOrganizing] = useState(false);
   const [message, setMessage] = useState("");
+  const [discordOpen, setDiscordOpen] = useState(false);
   const [characterFields, setCharacterFields] = useState<Record<string, Record<string, string>>>({});
   const draggedRef = useRef<ModuleId | null>(null);
 
@@ -120,8 +121,9 @@ export function ShieldWorkspace({ campaignCode, role, characters, scene, rolls, 
 
   return (
     <div className="shield-shell">
-      <header className="shield-heading"><div><p className="eyebrow">Painel pessoal da campanha</p><h1>{role === "master" ? "Escudo do Mestre" : "Escudo do Player"}</h1><p>Reúna o que precisa acompanhar durante a sessão e organize os módulos do seu jeito.</p></div><div className="shield-heading-actions"><button className={organizing ? "active" : ""} onClick={() => setOrganizing((value) => !value)}>{organizing ? "Concluir organização" : "Organizar Escudo"}</button><button onClick={() => void saveLayout(DEFAULT_LAYOUT)}>Restaurar padrão</button></div></header>
+      <header className="shield-heading"><div><p className="eyebrow">Painel pessoal da campanha</p><h1>{role === "master" ? "Escudo do Mestre" : "Escudo do Player"}</h1><p>Reúna o que precisa acompanhar durante a sessão e organize os módulos do seu jeito.</p></div><div className="shield-heading-actions">{role === "master" && <button className={discordOpen ? "active" : ""} onClick={() => setDiscordOpen((value) => !value)}>Discord</button>}<button className={organizing ? "active" : ""} onClick={() => setOrganizing((value) => !value)}>{organizing ? "Concluir organização" : "Organizar Escudo"}</button><button onClick={() => void saveLayout(DEFAULT_LAYOUT)}>Restaurar padrão</button></div></header>
       {message && <div className="shield-message">{message}</div>}
+      {role === "master" && discordOpen && <DiscordCampaignSettings campaignCode={campaignCode} />}
       {organizing && <div className="shield-organize-tip"><span>↕</span><p>Arraste os módulos ou use as setas. Você também pode ocultar e reativar módulos; tudo fica salvo só para você.</p></div>}
       <div className={`shield-grid ${organizing ? "is-organizing" : ""}`}>{layout.order.filter((id) => !layout.hidden.includes(id)).map((id) => (
         <section key={id} className={`shield-module shield-${id}`} draggable={organizing} onDragStart={() => { draggedRef.current = id; }} onDragOver={(event) => event.preventDefault()} onDrop={() => dropModule(id)}>
@@ -132,6 +134,16 @@ export function ShieldWorkspace({ campaignCode, role, characters, scene, rolls, 
       {organizing && layout.hidden.length > 0 && <div className="shield-hidden"><span>Módulos ocultos</span>{layout.hidden.map((id) => <button key={id} onClick={() => showModule(id)}>+ {MODULE_NAMES[id]}</button>)}</div>}
     </div>
   );
+}
+
+
+function DiscordCampaignSettings({ campaignCode }: { campaignCode: string }) {
+  const [form, setForm] = useState({ enabled: false, guildId: "", rpgChannelId: "", audiovisualChannelId: "", announcementsChannelId: "", musicChannelId: "" });
+  const [state, setState] = useState("Carregando integração...");
+  useEffect(() => { void (async () => { try { const data = await readJson<{ integration: typeof form }>(await fetch(`/api/campaigns/${campaignCode}/discord`, { cache: "no-store" })); setForm(data.integration); setState(""); } catch (error) { setState(error instanceof Error ? error.message : "Não foi possível carregar."); } })(); }, [campaignCode]);
+  const save = async (event: React.FormEvent) => { event.preventDefault(); setState("Salvando..."); try { await readJson(await fetch(`/api/campaigns/${campaignCode}/discord`, { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ integration: form }) })); setState("Integração Discord salva."); } catch (error) { setState(error instanceof Error ? error.message : "Não foi possível salvar."); } };
+  const field = (key: keyof typeof form, label: string, hint: string) => <label><span>{label}</span><small>{hint}</small><input value={String(form[key] || "")} onChange={(event) => setForm((value) => ({ ...value, [key]: event.target.value }))} placeholder="ID numérico do Discord" /></label>;
+  return <form className="discord-campaign-settings" onSubmit={save}><div><p className="eyebrow">Integração Discord</p><h2>Canais autorizados da campanha</h2><p>Use o modo desenvolvedor do Discord para copiar IDs. PVRP não é sincronizado ou catalogado.</p></div><label className="discord-toggle"><input type="checkbox" checked={form.enabled} onChange={(event) => setForm((value) => ({ ...value, enabled: event.target.checked }))} /> Ativar integração nesta campanha</label>{field("guildId", "Servidor", "ID do Madruga do RPG")}{field("rpgChannelId", "RPG Chat", "Narrativa e avisos da mesa")}{field("audiovisualChannelId", "Audiovisual", "Cenas e links do Cianna")}{field("announcementsChannelId", "Avisos de sessão", "Início, fim e resumo")}{field("musicChannelId", "Músicas", "Somente referência ao bot existente")}<button type="submit">Salvar integração</button>{state && <p className="discord-settings-state">{state}</p>}</form>;
 }
 
 function ShieldCharacters({ characters, openIds, fields, onToggle, onOpen }: {
