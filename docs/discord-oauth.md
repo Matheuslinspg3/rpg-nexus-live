@@ -12,7 +12,7 @@ O Cianna usa o Discord como identidade e ponto de encontro da comunidade. O **Ro
 ## Configuração única
 
 1. Crie uma aplicação em [Discord Developer Portal](https://discord.com/developers/applications) e copie **Client ID** e **Client Secret**.
-2. No Supabase: **Authentication → Providers → Discord**, ative o provedor e cole ambos.
+2. No Supabase: **Authentication → Providers → Discord**, ative o provedor e cole ambos. Em **Authentication → Settings**, habilite **Manual Linking**.
 3. No Discord: **OAuth2 → Redirects**, adicione exatamente:
    `https://SEU_PROJECT_REF.supabase.co/auth/v1/callback`
 4. No Supabase: **Authentication → URL Configuration**, adicione:
