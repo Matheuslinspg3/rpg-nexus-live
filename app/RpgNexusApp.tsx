@@ -5,8 +5,9 @@ import { CameraProvider, CameraWorkspace, CharacterCamera } from "./CameraSystem
 import { getNimbleLayout, NIMBLE_LAYOUTS, type NimbleLayoutDefinition, type NimbleLayoutId } from "./nimbleLayouts";
 import { ShieldWorkspace } from "./ShieldWorkspace";
 import { createBrowserClient } from "@/lib/supabase";
+import { ProfileSettings } from "./components/ProfileSettings";
 
-type User = { id: string; displayName: string; username: string };
+type User = { id: string; displayName: string; username: string; discordName?: string | null };
 type Role = "master" | "player";
 type CampaignListItem = {
   id: string;
@@ -164,6 +165,7 @@ function parseClassFeatures(value: string | undefined) {
 
 export default function RpgNexusApp({ initialUser }: { initialUser: User | null }) {
   const [user, setUser] = useState<User | null>(initialUser);
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const [campaigns, setCampaigns] = useState<CampaignListItem[]>([]);
   const [room, setRoom] = useState<RoomPayload | null>(null);
   const [presence, setPresence] = useState<Presence[]>([]);
@@ -709,7 +711,13 @@ export default function RpgNexusApp({ initialUser }: { initialUser: User | null 
   if (!room) {
     return (
       <main className="dashboard-page">
-        <AppHeader user={user} onLogout={() => void logout()} />
+        <AppHeader user={user} onLogout={() => void logout()} onOpenSettings={() => setSettingsOpen(true)} />
+        <ProfileSettings
+          open={settingsOpen}
+          user={user}
+          onClose={() => setSettingsOpen(false)}
+          onProfileUpdated={(profile) => setUser((current) => current ? { ...current, ...profile } : current)}
+        />
         <div className="dashboard-shell">
           <section className="dashboard-intro">
             <div><p className="eyebrow">Central de campanhas</p><h1>{greeting()}, {user.displayName.split(" ")[0]}.</h1><p>Reúna o grupo, abra uma ficha e deixe a história acontecer em tempo real.</p></div>
@@ -1466,8 +1474,8 @@ function ShadowmancerSheet({ fallbackName, layout, fields, onChange, onFocus, ed
   );
 }
 
-function AppHeader({ user, onLogout }: { user: User; onLogout: () => void }) {
-  return <header className="app-header"><div className="brand-lockup"><span className="brand-mark small">N</span><span>CIANNA'S STAGE</span></div><div className="header-user"><span className="avatar self">{initials(user.displayName)}</span><div><strong>{user.displayName}</strong><small>@{user.username}</small></div><button onClick={onLogout} title="Sair" aria-label="Sair da conta">↗</button></div></header>;
+function AppHeader({ user, onLogout, onOpenSettings }: { user: User; onLogout: () => void; onOpenSettings: () => void }) {
+  return <header className="app-header"><div className="brand-lockup"><span className="brand-mark small">N</span><span>CIANNA'S STAGE</span></div><div className="header-user"><span className="avatar self">{initials(user.displayName)}</span><div><strong>{user.displayName}</strong><small>@{user.username}</small></div><button onClick={onOpenSettings} title="Perfil e integrações" aria-label="Abrir perfil e integrações">⚙</button><button onClick={onLogout} title="Sair" aria-label="Sair da conta">↗</button></div></header>;
 }
 
 function SheetField({ id, label, hint, value = "", onChange, onFocus, editor, compact = false, multiline = false }: {
