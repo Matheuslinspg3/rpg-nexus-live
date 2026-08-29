@@ -28,6 +28,7 @@ npm run dev
    - `NEXT_PUBLIC_SUPABASE_ANON_KEY`: (chave anon do Supabase)
    - `SUPABASE_SERVICE_ROLE_KEY`: (chave service_role)
    - `DAILY_API_KEY`: (API key do painel Daily.co)
+   - `DISCORD_CLIENT_ID`: (Application ID público do bot no Discord Developer Portal)
 3. Deploy automático no push
 
 ## Supabase Schema
