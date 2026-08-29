@@ -3,6 +3,12 @@
 import DailyIframe, { DailyCall } from "@daily-co/daily-js";
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 
+const FULL_HD_VIDEO_SOURCE: MediaTrackConstraints = {
+  width: { ideal: 1920, max: 1920 },
+  height: { ideal: 1080, max: 1080 },
+  frameRate: { ideal: 30, max: 30 },
+};
+
 type CameraIdentity = { id: string; displayName: string };
 type Role = "master" | "player";
 
@@ -135,7 +141,8 @@ export function CameraProvider({
       // setLocalVideo()/setLocalAudio() from enabling it later.
       const callObject = DailyIframe.createCallObject({
         audioSource: true,
-        videoSource: true,
+        // Solicita Full HD sem obrigar câmeras mais simples a falhar.
+        videoSource: FULL_HD_VIDEO_SOURCE,
       } as any);
       callRef.current = callObject;
 
