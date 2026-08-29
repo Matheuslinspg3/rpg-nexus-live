@@ -4,8 +4,10 @@ import { startTransition, useCallback, useEffect, useRef, useState } from "react
 import { CameraProvider, CameraWorkspace, CharacterCamera } from "./CameraSystem";
 import { getNimbleLayout, NIMBLE_LAYOUTS, type NimbleLayoutDefinition, type NimbleLayoutId } from "./nimbleLayouts";
 import { ShieldWorkspace } from "./ShieldWorkspace";
+import { createBrowserClient } from "@/lib/supabase";
+import { ProfileSettings } from "./components/ProfileSettings";
 
-type User = { id: string; displayName: string; username: string };
+type User = { id: string; displayName: string; username: string; discordName?: string | null };
 type Role = "master" | "player";
 type CampaignListItem = {
   id: string;
@@ -163,6 +165,7 @@ function parseClassFeatures(value: string | undefined) {
 
 export default function RpgNexusApp({ initialUser }: { initialUser: User | null }) {
   const [user, setUser] = useState<User | null>(initialUser);
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const [campaigns, setCampaigns] = useState<CampaignListItem[]>([]);
   const [room, setRoom] = useState<RoomPayload | null>(null);
   const [presence, setPresence] = useState<Presence[]>([]);
@@ -170,6 +173,7 @@ export default function RpgNexusApp({ initialUser }: { initialUser: User | null 
   const [roomView, setRoomView] = useState<RoomView>("sheet");
   const [scene, setScene] = useState<Scene>({ hasImage: false, imageUrl: null, imageName: null, revealPercent: 0, updatedAt: null });
   const [sceneBusy, setSceneBusy] = useState(false);
+  const [scenePipOpen, setScenePipOpen] = useState(false);
   const [rolls, setRolls] = useState<DiceRoll[]>([]);
   const [rollBusy, setRollBusy] = useState(false);
   const [selectedCharacterId, setSelectedCharacterId] = useState<string | null>(null);
@@ -182,14 +186,15 @@ export default function RpgNexusApp({ initialUser }: { initialUser: User | null 
   const [saveState, setSaveState] = useState<SaveState>("saved");
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const activeFieldRef = useRef<string | null>(null);
-  const saveTimers = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
+  const saveTimers = useRef<Record<string, number | NodeJS.Timeout>>({});
   const dirtyFieldsRef = useRef<Record<string, string>>({});
   const queuedFieldValuesRef = useRef<Record<string, string>>({});
   const savingFieldsRef = useRef<Set<string>>(new Set());
   const roomCodeRef = useRef<string | null>(null);
   const selectedCharacterRef = useRef<string | null>(null);
   const roomViewRef = useRef<RoomView>("sheet");
-  const cursorRef = useRef({ x: 0.5, y: 0.5 });
+  // A null point means the pointer is outside the editable character sheet.
+  const cursorRef = useRef<{ x: number | null; y: number | null }>({ x: null, y: null });
   const lastPresenceSent = useRef(0);
   const presenceSendingRef = useRef(false);
   const presenceQueuedRef = useRef(false);
@@ -201,7 +206,7 @@ export default function RpgNexusApp({ initialUser }: { initialUser: User | null 
   const revealSendingRef = useRef(false);
   const revealQueuedRef = useRef<number | null>(null);
   const revealOptimisticRef = useRef<number | null>(null);
-  const revealReleaseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const revealReleaseTimerRef = useRef<number | NodeJS.Timeout | null>(null);
   const scenePreloadRef = useRef<HTMLImageElement | null>(null);
 
   const loadCampaigns = useCallback(async () => {
@@ -339,6 +344,7 @@ export default function RpgNexusApp({ initialUser }: { initialUser: User | null 
     setRoom(null);
     setPresence([]);
     setScene({ hasImage: false, imageUrl: null, imageName: null, revealPercent: 0, updatedAt: null });
+    setScenePipOpen(false);
     setRolls([]);
     setFields({});
     activeFieldRef.current = null;
@@ -439,7 +445,24 @@ export default function RpgNexusApp({ initialUser }: { initialUser: User | null 
     roomTimer = window.setTimeout(() => void pollRoom(), 2400);
     const heartbeat = window.setInterval(() => void sendPresence(), 3_000);
     const trackCursor = (event: PointerEvent) => {
-      cursorRef.current = { x: event.clientX / window.innerWidth, y: event.clientY / window.innerHeight };
+      const target = event.target;
+      const sheet = target instanceof Element ? target.closest(".character-sheet") : null;
+      const isOnSheet = roomViewRef.current === "sheet" && sheet;
+
+      if (!isOnSheet) {
+        if (cursorRef.current.x !== null || cursorRef.current.y !== null) {
+          cursorRef.current = { x: null, y: null };
+          lastPresenceSent.current = Date.now();
+          void sendPresence();
+        }
+        return;
+      }
+
+      const bounds = sheet.getBoundingClientRect();
+      cursorRef.current = {
+        x: Math.max(0, Math.min(1, (event.clientX - bounds.left) / bounds.width)),
+        y: Math.max(0, Math.min(1, (event.clientY - bounds.top) / bounds.height)),
+      };
       if (Date.now() - lastPresenceSent.current > 90) {
         lastPresenceSent.current = Date.now();
         void sendPresence();
@@ -658,16 +681,11 @@ export default function RpgNexusApp({ initialUser }: { initialUser: User | null 
     window.setTimeout(() => setNotice(""), 2800);
   };
 
-  const authenticate = (authenticatedUser: User) => {
-    setUser(authenticatedUser);
-    setCampaigns([]);
-    setRoom(null);
-    setNotice("");
-    setLoading(true);
-  };
-
   const logout = async () => {
-    try { await fetch("/api/auth/logout", { method: "POST" }); } catch { /* Clear the local view even if the network is unavailable. */ }
+    try {
+      const supabase = createBrowserClient();
+      await supabase.auth.signOut();
+    } catch { /* Clear the local view even if the network is unavailable. */ }
     roomCodeRef.current = null;
     selectedCharacterRef.current = null;
     dirtyFieldsRef.current = {};
@@ -681,18 +699,25 @@ export default function RpgNexusApp({ initialUser }: { initialUser: User | null 
     setPresence([]);
     setRoomView("sheet");
     setScene({ hasImage: false, imageUrl: null, imageName: null, revealPercent: 0, updatedAt: null });
+    setScenePipOpen(false);
     setRolls([]);
     setCampaigns([]);
     setFields({});
     setUser(null);
   };
 
-  if (!user) return <BasicAuth onAuthenticated={authenticate} />;
+  if (!user) return null;
 
   if (!room) {
     return (
       <main className="dashboard-page">
-        <AppHeader user={user} onLogout={() => void logout()} />
+        <AppHeader user={user} onLogout={() => void logout()} onOpenSettings={() => setSettingsOpen(true)} />
+        <ProfileSettings
+          open={settingsOpen}
+          user={user}
+          onClose={() => setSettingsOpen(false)}
+          onProfileUpdated={(profile) => setUser((current) => current ? { ...current, ...profile } : current)}
+        />
         <div className="dashboard-shell">
           <section className="dashboard-intro">
             <div><p className="eyebrow">Central de campanhas</p><h1>{greeting()}, {user.displayName.split(" ")[0]}.</h1><p>Reúna o grupo, abra uma ficha e deixe a história acontecer em tempo real.</p></div>
@@ -714,7 +739,6 @@ export default function RpgNexusApp({ initialUser }: { initialUser: User | null 
               <button className="secondary-button" disabled={action !== null}>{action === "join" ? "Entrando..." : "Entrar como Player"} <span aria-hidden="true">→</span></button>
             </form>
           </section>
-          <DiscordInstallCard />
           <section className="campaign-section">
             <div className="section-heading"><div><p className="eyebrow">Suas mesas</p><h2>Campanhas recentes</h2></div><button className="text-button" onClick={() => void loadCampaigns()}>Atualizar ↻</button></div>
             {loading ? <div className="empty-state">Carregando suas campanhas...</div> : campaigns.length === 0 ? (
@@ -770,10 +794,10 @@ export default function RpgNexusApp({ initialUser }: { initialUser: User | null 
   };
 
   return (
-    <CameraProvider campaignCode={room.campaign.code} user={{ id: user.id, displayName: user.displayName }} role={room.campaign.role} activeView={roomView}>
+    <CameraProvider campaignCode={room.campaign.code} user={{ id: user.id, displayName: user.displayName }} role={room.campaign.role}>
     <main className="room-page">
       <header className="room-header">
-        <button className="room-brand" onClick={leaveRoom}><span className="brand-mark small">N</span><span>RPG NEXUS</span></button>
+        <button className="room-brand" onClick={leaveRoom}><span className="brand-mark small">C</span><span>CIANNA'S STAGE</span></button>
         <div className="room-heading"><div className="room-title"><strong>{room.campaign.name}</strong><span>{room.campaign.system}</span></div><nav className="room-tabs" aria-label="Áreas da campanha"><button className={roomView === "shield" ? "active" : ""} onClick={() => switchRoomView("shield")}>{room.campaign.role === "master" ? "Escudo do Mestre" : "Escudo do Player"}</button><button className={roomView === "sheet" ? "active" : ""} onClick={() => switchRoomView("sheet")}>Ficha</button><button className={roomView === "scene" ? "active" : ""} onClick={() => switchRoomView("scene")}>Cena</button><button className={roomView === "dice" ? "active" : ""} onClick={() => switchRoomView("dice")}>Dados</button><button className={roomView === "camera" ? "active" : ""} onClick={() => switchRoomView("camera")}>Câmeras</button></nav></div>
         <button className="room-code" onClick={() => void copyCode()} title="Copiar código"><span>Código</span><strong>{room.campaign.code}</strong><i>⧉</i></button>
         <div className={`save-state save-${saveState}`}><i />{saveState === "saved" ? "Sincronizado" : saveState === "saving" ? "Salvando" : "Reconectando"}</div>
@@ -781,6 +805,7 @@ export default function RpgNexusApp({ initialUser }: { initialUser: User | null 
       </header>
       {notice && <div className="room-notice" role="status">{notice}</div>}
       <div className="room-layout">
+        {sidebarOpen && <button className="room-sidebar-backdrop" type="button" aria-label="Fechar painel da mesa" onClick={() => setSidebarOpen(false)} />}
         <aside className={`room-sidebar ${sidebarOpen ? "is-open" : ""}`}>
           <button className="back-button" onClick={leaveRoom}>← Todas as campanhas</button>
           <section className="sidebar-section"><p className="sidebar-label">Nesta mesa</p><div className="viewer-role"><span className="avatar self">{initials(user.displayName)}</span><div><strong>{user.displayName}</strong><small>Você · {roleLabel(room.campaign.role)}</small></div></div></section>
@@ -820,11 +845,22 @@ export default function RpgNexusApp({ initialUser }: { initialUser: User | null 
         </aside>
         <section className={roomView === "scene" ? "scene-workspace" : roomView === "dice" ? "dice-workspace" : roomView === "camera" ? "camera-workspace" : roomView === "shield" ? "shield-workspace" : "sheet-workspace"}>
           {roomView === "scene" ? (
-            <SceneWorkspace scene={scene} role={room.campaign.role} busy={sceneBusy} peopleHere={presence.filter((person) => person.email === room.viewerEmail || person.editingField?.startsWith("scene:"))} onUpload={(file) => void uploadScene(file)} onReveal={(value) => void updateSceneReveal(value)} />
+            <SceneWorkspace scene={scene} role={room.campaign.role} busy={sceneBusy} peopleHere={presence.filter((person) => person.email === room.viewerEmail || person.editingField?.startsWith("scene:"))} onUpload={(file) => void uploadScene(file)} onReveal={(value) => void updateSceneReveal(value)} isPipOpen={scenePipOpen} onTogglePip={() => setScenePipOpen((value) => !value)} />
           ) : roomView === "dice" ? (
             <DiceWorkspace rolls={rolls} role={room.campaign.role} viewerUserId={room.viewerEmail} busy={rollBusy} peopleHere={presence.filter((person) => person.email === room.viewerEmail || person.editingField?.startsWith("dice:"))} onRoll={(spec) => void rollDice(spec)} />
           ) : roomView === "camera" ? (
-            <CameraWorkspace />
+            <CameraWorkspace
+              people={room.members.map((member) => {
+                const currentPresence = presence.find((person) => person.email === member.email);
+                return {
+                  id: member.email,
+                  displayName: member.displayName,
+                  role: member.role,
+                  isOnline: Boolean(currentPresence),
+                  color: currentPresence?.color,
+                };
+              })}
+            />
           ) : roomView === "shield" ? (
             <ShieldWorkspace campaignCode={room.campaign.code} role={room.campaign.role} characters={room.characters} scene={scene} rolls={rolls} rollBusy={rollBusy} onRoll={(spec) => void rollDice(spec)} onReveal={(value) => void updateSceneReveal(value)} onOpenCharacter={(characterId) => void selectCharacter(characterId)} onGoTo={(view) => switchRoomView(view)} />
           ) : !selectedCharacter ? (
@@ -842,56 +878,71 @@ export default function RpgNexusApp({ initialUser }: { initialUser: User | null 
             </div>
             {room.campaign.role === "master" && <CharacterAdminBar key={selectedCharacter.id} character={selectedCharacter} players={players} busy={characterAction} layout={activeLayout.id} onLayoutChange={changeCharacterLayout} onUpdate={(changes) => void updateCharacter(selectedCharacter.id, changes)} />}
             <div className={`character-sheet nimble-layout-${activeLayout.id.toLowerCase().replace("_", "-")}`} onPointerDown={() => setSidebarOpen(false)}>
-            {activeLayout.id === "SHADOWMANCER" ? (
-              <ShadowmancerSheet fallbackName={selectedCharacter.name} layout={activeLayout} fields={fields} onChange={updateField} onFocus={focusField} editingMap={editingMap} />
-            ) : <>
-              <div className="sheet-rule"><span>NIMBLE · {activeLayout.name.toUpperCase()}</span></div>
-              <NimbleClassPanel layout={activeLayout} fields={fields} onChange={updateField} onFocus={focusField} editingMap={editingMap} />
-              <div className="identity-grid">
-                <SheetField id="characterName" label="Nome do personagem" value={fields.characterName} onChange={updateField} onFocus={focusField} editor={editingMap.get("characterName")} />
-                <SheetField id="ancestryClassLevel" label="Ancestralidade, classe e nível" value={fields.ancestryClassLevel} onChange={updateField} onFocus={focusField} editor={editingMap.get("ancestryClassLevel")} />
-                <SheetField id="heightWeightSpeed" label="Altura, peso e deslocamento" value={fields.heightWeightSpeed} onChange={updateField} onFocus={focusField} editor={editingMap.get("heightWeightSpeed")} />
-                <SheetField id="hitDice" label="Dado de vida" value={fields.hitDice} onChange={updateField} onFocus={focusField} editor={editingMap.get("hitDice")} />
-              </div>
-              <div className="combat-row">
-                <div className="stats-grid">{stats.map(([id, label]) => <SheetField key={id} id={id} label={label} value={fields[id]} onChange={updateField} onFocus={focusField} editor={editingMap.get(id)} compact />)}</div>
-                <div className="hp-block"><span className="hp-heart" aria-hidden="true">♥</span><label>HIT POINTS</label><div><SheetField id="hpCurrent" label="Atual" value={fields.hpCurrent} onChange={updateField} onFocus={focusField} editor={editingMap.get("hpCurrent")} compact /><b>/</b><SheetField id="hpMax" label="Máx" value={fields.hpMax} onChange={updateField} onFocus={focusField} editor={editingMap.get("hpMax")} compact /></div><SheetField id="tempHp" label="HP temporário" value={fields.tempHp} onChange={updateField} onFocus={focusField} editor={editingMap.get("tempHp")} compact /></div>
-                <SheetField id="armor" label="Armadura" value={fields.armor} onChange={updateField} onFocus={focusField} editor={editingMap.get("armor")} compact />
-                <SheetField id="initiative" label="Iniciativa" value={fields.initiative} onChange={updateField} onFocus={focusField} editor={editingMap.get("initiative")} compact />
-                <div className="wounds-block"><label>FERIMENTOS</label><div>{[1,2,3,4,5].map((number) => <Wound key={number} id={`wound${number}`} checked={fields[`wound${number}`] === "true"} onChange={updateField} editor={editingMap.get(`wound${number}`)} onFocus={focusField} />)}</div></div>
-              </div>
-              <div className="skills-grid">{skills.map(([id, label, ability]) => <SheetField key={id} id={id} label={label} hint={ability} value={fields[id]} onChange={updateField} onFocus={focusField} editor={editingMap.get(id)} compact />)}</div>
-              <div className="details-grid">
-                <SheetField id="features" label="Habilidades & equipamentos" value={fields.features} onChange={updateField} onFocus={focusField} editor={editingMap.get("features")} multiline />
-                <SheetField id="spells" label="Magias & recursos" value={fields.spells} onChange={updateField} onFocus={focusField} editor={editingMap.get("spells")} multiline />
-                <SheetField id="notes" label="Anotações da aventura" value={fields.notes} onChange={updateField} onFocus={focusField} editor={editingMap.get("notes")} multiline />
-              </div>
-              <div className="sheet-footer"><span>RPG NEXUS</span><p>Alterações são salvas automaticamente para toda a mesa.</p><span>v1.0</span></div>
-            </>}
+              {cursorOthers
+                .filter((person) => person.cursorX !== null && person.cursorY !== null)
+                .map((person) => (
+                  <div
+                    key={person.email}
+                    className="sheet-remote-cursor"
+                    style={{ "--cursor-x": `${(person.cursorX ?? 0) * 100}%`, "--cursor-y": `${(person.cursorY ?? 0) * 100}%`, color: person.color } as React.CSSProperties}
+                  >
+                    <span>◆</span><b style={{ background: person.color }}>{person.displayName}</b>
+                  </div>
+                ))}
+            <div className="desktop-nimble-sheet">
+              {activeLayout.id === "SHADOWMANCER" ? (
+                <ShadowmancerSheet fallbackName={selectedCharacter.name} layout={activeLayout} fields={fields} onChange={updateField} onFocus={focusField} editingMap={editingMap} />
+              ) : (
+                <NimbleClassPanel layout={activeLayout} fields={fields} onChange={updateField} onFocus={focusField} editingMap={editingMap} fallbackName={selectedCharacter.name} />
+              )}
+            </div>
+            <MobileNimbleSheet layout={activeLayout} fields={fields} onChange={updateField} onFocus={focusField} editingMap={editingMap} fallbackName={selectedCharacter.name} />
             </div>
           </>}
         </section>
       </div>
-      {cursorOthers.filter((person) => person.cursorX !== null && person.cursorY !== null).map((person) => (
-        <div key={person.email} className="remote-cursor" style={{ "--cursor-x": `${(person.cursorX ?? 0) * 100}vw`, "--cursor-y": `${(person.cursorY ?? 0) * 100}vh`, color: person.color } as React.CSSProperties}><span>◆</span><b style={{ background: person.color }}>{person.displayName}</b></div>
-      ))}
+      <MobileRoomNav activeView={roomView} role={room.campaign.role} onlineCount={presence.length} onChange={switchRoomView} onOpenPanel={() => setSidebarOpen(true)} />
+      <ScenePictureInPicture scene={scene} open={scenePipOpen} onClose={() => setScenePipOpen(false)} onOpenScene={() => switchRoomView("scene")} />
     </main>
     </CameraProvider>
   );
 }
 
-function DiscordInstallCard() {
+
+function MobileRoomNav({ activeView, role, onlineCount, onChange, onOpenPanel }: {
+  activeView: RoomView;
+  role: Role;
+  onlineCount: number;
+  onChange: (view: RoomView) => void;
+  onOpenPanel: () => void;
+}) {
+  const items: Array<{ view: RoomView; label: string; icon: string }> = [
+    { view: "shield", label: role === "master" ? "Escudo" : "Mesa", icon: "◆" },
+    { view: "sheet", label: "Ficha", icon: "▤" },
+    { view: "scene", label: "Cena", icon: "◐" },
+    { view: "dice", label: "Dados", icon: "⬡" },
+    { view: "camera", label: "Câmeras", icon: "◉" },
+  ];
+
   return (
-    <section className="discord-install-card" aria-labelledby="discord-install-title">
-      <div className="discord-install-mark" aria-hidden="true">◈</div>
-      <div className="discord-install-copy">
-        <p className="action-kicker">Integração da mesa</p>
-        <h2 id="discord-install-title">Conecte o Storyteller ao Discord</h2>
-        <p>Instale o bot com as permissões necessárias para avisos, gravação no Lobby e envio dos áudios da sessão.</p>
-      </div>
-      <a className="discord-install-button" href="/api/discord/install">Conectar ao Discord <span aria-hidden="true">↗</span></a>
-      <small>Sem permissão de Administrador. O token continua protegido na VM.</small>
-    </section>
+    <nav className="mobile-room-nav" aria-label="Navegação da mesa">
+      {items.map((item) => (
+        <button
+          type="button"
+          key={item.view}
+          className={activeView === item.view ? "active" : ""}
+          aria-current={activeView === item.view ? "page" : undefined}
+          onClick={() => onChange(item.view)}
+        >
+          <span aria-hidden="true">{item.icon}</span>
+          <small>{item.label}</small>
+        </button>
+      ))}
+      <button type="button" className="mobile-room-members" onClick={onOpenPanel} aria-label={`Abrir painel da mesa: ${onlineCount} participantes online`}>
+        <span aria-hidden="true">☰</span>
+        <small>Mesa</small>
+      </button>
+    </nav>
   );
 }
 
@@ -958,13 +1009,15 @@ function DiceWorkspace({ rolls, role, viewerUserId, busy, peopleHere, onRoll }: 
   );
 }
 
-function SceneWorkspace({ scene, role, busy, peopleHere, onUpload, onReveal }: {
+function SceneWorkspace({ scene, role, busy, peopleHere, onUpload, onReveal, isPipOpen, onTogglePip }: {
   scene: Scene;
   role: Role;
   busy: boolean;
   peopleHere: Presence[];
   onUpload: (file: File) => void;
   onReveal: (value: number) => void;
+  isPipOpen: boolean;
+  onTogglePip: () => void;
 }) {
   const curtainStyle = {
     "--curtain-width": `${(100 - scene.revealPercent) / 2}%`,
@@ -973,9 +1026,12 @@ function SceneWorkspace({ scene, role, busy, peopleHere, onUpload, onReveal }: {
   return (
     <div className="scene-shell">
       <div className="scene-toolbar">
-        <div><p className="eyebrow">Canal Audiovisual · texto e imagem</p><h1>Audiovisual</h1><p>Imagens e descrições da campanha ficam disponíveis para a mesa conforme o Mestre revela a cena.</p></div>
+        <div><p className="eyebrow">Projeção compartilhada</p><h1>Cena audiovisual</h1><p>A imagem fica carregada por trás da cortina e aparece para todos conforme o Mestre abre.</p></div>
         <div className="live-collaborators">{peopleHere.slice(0, 4).map((person) => <span key={person.email} className="mini-avatar" style={{ borderColor: person.color }} title={person.displayName}>{initials(person.displayName)}</span>)}<small>{peopleHere.length > 1 ? `${peopleHere.length} pessoas na cena` : "Só você na cena"}</small></div>
       </div>
+      <button className="scene-pip-button" type="button" disabled={!scene.hasImage || !scene.imageUrl} onClick={onTogglePip}>
+        {isPipOpen ? "◌ Fechar cena em PiP" : "◌ Cena em PiP"}
+      </button>
 
       {role === "master" && (
         <section className="scene-controls">
@@ -1000,6 +1056,33 @@ function SceneWorkspace({ scene, role, busy, peopleHere, onUpload, onReveal }: {
         </div>
       )}
     </div>
+  );
+}
+
+
+function ScenePictureInPicture({ scene, open, onClose, onOpenScene }: {
+  scene: Scene;
+  open: boolean;
+  onClose: () => void;
+  onOpenScene: () => void;
+}) {
+  if (!open || !scene.hasImage || !scene.imageUrl) return null;
+  const curtainStyle = {
+    "--scene-pip-curtain": `${(100 - scene.revealPercent) / 2}%`,
+  } as React.CSSProperties;
+
+  return (
+    <aside className="scene-picture-in-picture" aria-label="Cena audiovisual em picture-in-picture">
+      <div className="scene-pip-image" style={curtainStyle}>
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img src={scene.imageUrl} alt={scene.imageName || "Cena audiovisual"} />
+        <i className="scene-pip-curtain left" /><i className="scene-pip-curtain right" />
+      </div>
+      <div className="scene-pip-bar">
+        <button type="button" onClick={onOpenScene} title="Abrir a cena">◉ <span>{scene.imageName || "Cena"}</span></button>
+        <button type="button" onClick={onClose} title="Fechar picture-in-picture">×</button>
+      </div>
+    </aside>
   );
 }
 
@@ -1032,14 +1115,156 @@ function CharacterAdminBar({ character, players, busy, layout, onLayoutChange, o
   );
 }
 
-function NimbleClassPanel({ layout, fields, onChange, onFocus, editingMap }: {
+
+type MobileSheetPage = "profile" | "combat" | "skills" | "journal";
+
+function MobileNimbleSheet({ layout, fields, onChange, onFocus, editingMap, fallbackName }: {
   layout: NimbleLayoutDefinition;
   fields: Record<string, string>;
   onChange: (field: string, value: string) => void;
   onFocus: (field: string | null) => void;
   editingMap: Map<string, Presence>;
+  fallbackName: string;
+}) {
+  const [page, setPage] = useState<MobileSheetPage>("profile");
+  const portraitName = fields.characterName || fallbackName;
+  const selectedFeatures = parseClassFeatures(fields.classFeatures);
+  const pages: Array<{ id: MobileSheetPage; label: string; icon: string }> = [
+    { id: "profile", label: "Perfil", icon: "◇" },
+    { id: "combat", label: "Combate", icon: "⚔" },
+    { id: "skills", label: "Habilidades", icon: "✦" },
+    { id: "journal", label: "Diário", icon: "▤" },
+  ];
+
+  const toggleFeature = (feature: string) => {
+    const next = selectedFeatures.includes(feature)
+      ? selectedFeatures.filter((item) => item !== feature)
+      : [...selectedFeatures, feature];
+    onChange("classFeatures", JSON.stringify(next));
+  };
+
+  return (
+    <article className="character-sheet mobile-nimble-sheet" aria-label={`Ficha mobile ${layout.name}`}>
+      <header className="mobile-sheet-heading">
+        <div className={`mobile-sheet-portrait ${fields.portraitUrl ? "has-image" : ""}`}>
+          {fields.portraitUrl ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img src={fields.portraitUrl} alt={`Retrato de ${portraitName}`} />
+          ) : <span>{initials(portraitName)}</span>}
+        </div>
+        <div>
+          <p>Ficha Nimble</p>
+          <strong>{portraitName}</strong>
+          <small>{layout.name} · nível {fields.level || "—"}</small>
+        </div>
+      </header>
+
+      <nav className="mobile-sheet-tabs" role="tablist" aria-label="Seções da ficha">
+        {pages.map((item) => (
+          <button
+            type="button"
+            role="tab"
+            key={item.id}
+            aria-selected={page === item.id}
+            className={page === item.id ? "active" : ""}
+            onClick={() => setPage(item.id)}
+          >
+            <span aria-hidden="true">{item.icon}</span>{item.label}
+          </button>
+        ))}
+      </nav>
+
+      <div className="mobile-sheet-page" role="tabpanel">
+        {page === "profile" && (
+          <>
+            <div className="mobile-sheet-section-title"><span>◇</span><div><strong>Identidade</strong><small>Quem está em cena</small></div></div>
+            <div className="mobile-sheet-fields">
+              <SheetField id="characterName" label="Nome do personagem" value={fields.characterName} onChange={onChange} onFocus={onFocus} editor={editingMap.get("characterName")} />
+              <SheetField id="ancestryClassLevel" label="Ancestralidade, classe e nível" value={fields.ancestryClassLevel} onChange={onChange} onFocus={onFocus} editor={editingMap.get("ancestryClassLevel")} />
+              <SheetField id="subclass" label="Subclasse" value={fields.subclass} onChange={onChange} onFocus={onFocus} editor={editingMap.get("subclass")} />
+              <SheetField id="level" label="Nível" value={fields.level} onChange={onChange} onFocus={onFocus} editor={editingMap.get("level")} />
+              <SheetField id="heightWeightSpeed" label="Altura, peso e deslocamento" value={fields.heightWeightSpeed} onChange={onChange} onFocus={onFocus} editor={editingMap.get("heightWeightSpeed")} />
+              <SheetField id="portraitUrl" label="URL do retrato" value={fields.portraitUrl} onChange={onChange} onFocus={onFocus} editor={editingMap.get("portraitUrl")} />
+              <SheetField id="proficiencies" label="Proficiências" value={fields.proficiencies} onChange={onChange} onFocus={onFocus} editor={editingMap.get("proficiencies")} />
+            </div>
+          </>
+        )}
+
+        {page === "combat" && (
+          <>
+            <div className="mobile-sheet-section-title"><span>⚔</span><div><strong>Combate</strong><small>Valores usados na ação</small></div></div>
+            <div className="mobile-stat-grid">
+              {stats.map(([id, label]) => <SheetField key={id} id={id} label={label} value={fields[id]} onChange={onChange} onFocus={onFocus} editor={editingMap.get(id)} />)}
+            </div>
+            <div className="mobile-sheet-fields two-columns">
+              <SheetField id="hpCurrent" label="HP atual" value={fields.hpCurrent} onChange={onChange} onFocus={onFocus} editor={editingMap.get("hpCurrent")} />
+              <SheetField id="hpMax" label="HP máximo" value={fields.hpMax} onChange={onChange} onFocus={onFocus} editor={editingMap.get("hpMax")} />
+              <SheetField id="tempHp" label="HP temporário" value={fields.tempHp} onChange={onChange} onFocus={onFocus} editor={editingMap.get("tempHp")} />
+              <SheetField id="armor" label="Armadura" value={fields.armor} onChange={onChange} onFocus={onFocus} editor={editingMap.get("armor")} />
+              <SheetField id="initiative" label="Iniciativa" value={fields.initiative} onChange={onChange} onFocus={onFocus} editor={editingMap.get("initiative")} />
+              <SheetField id="hitDice" label="Dado de vida" value={fields.hitDice} onChange={onChange} onFocus={onFocus} editor={editingMap.get("hitDice")} />
+              <SheetField id="size" label="Tamanho" value={fields.size} onChange={onChange} onFocus={onFocus} editor={editingMap.get("size")} />
+              <SheetField id="speed" label="Deslocamento" value={fields.speed} onChange={onChange} onFocus={onFocus} editor={editingMap.get("speed")} />
+            </div>
+            <section className="mobile-wounds">
+              <strong>Ferimentos</strong>
+              <div>{[1,2,3,4,5].map((number) => <Wound key={number} id={`wound${number}`} checked={fields[`wound${number}`] === "true"} onChange={onChange} editor={editingMap.get(`wound${number}`)} onFocus={onFocus} />)}</div>
+            </section>
+          </>
+        )}
+
+        {page === "skills" && (
+          <>
+            <div className="mobile-sheet-section-title"><span>✦</span><div><strong>Habilidades</strong><small>Perícias e recursos de classe</small></div></div>
+            <div className="mobile-skill-grid">
+              {skills.map(([id, label, ability]) => <SheetField key={id} id={id} label={label} hint={ability} value={fields[id]} onChange={onChange} onFocus={onFocus} editor={editingMap.get(id)} />)}
+            </div>
+            {(layout.resource1 || layout.resource2 || layout.usesSpellTier) && (
+              <div className="mobile-sheet-fields two-columns">
+                {layout.resource1 && <SheetField id="classResource1Current" label={layout.resource1} value={fields.classResource1Current} onChange={onChange} onFocus={onFocus} editor={editingMap.get("classResource1Current")} />}
+                {layout.resource1 && <SheetField id="classResource1Max" label={`Máximo · ${layout.resource1}`} value={fields.classResource1Max} onChange={onChange} onFocus={onFocus} editor={editingMap.get("classResource1Max")} />}
+                {layout.resource2 && <SheetField id="classResource2Current" label={layout.resource2} value={fields.classResource2Current} onChange={onChange} onFocus={onFocus} editor={editingMap.get("classResource2Current")} />}
+                {layout.resource2 && <SheetField id="classResource2Max" label={`Máximo · ${layout.resource2}`} value={fields.classResource2Max} onChange={onChange} onFocus={onFocus} editor={editingMap.get("classResource2Max")} />}
+                {layout.usesSpellTier && <SheetField id="spellTier" label="Círculo de magia" value={fields.spellTier} onChange={onChange} onFocus={onFocus} editor={editingMap.get("spellTier")} />}
+              </div>
+            )}
+            {layout.features.length > 0 && (
+              <section className="mobile-class-features" onFocus={() => onFocus("classFeatures")} onBlur={(event) => { if (!event.currentTarget.contains(event.relatedTarget)) onFocus(null); }}>
+                <strong>{layout.featureTitle}</strong>
+                <div>{layout.features.map((feature) => {
+                  const checked = selectedFeatures.includes(feature);
+                  return <button type="button" key={feature} className={checked ? "checked" : ""} aria-pressed={checked} onClick={() => toggleFeature(feature)}>{checked ? "✓ " : ""}{feature}</button>;
+                })}</div>
+              </section>
+            )}
+          </>
+        )}
+
+        {page === "journal" && (
+          <>
+            <div className="mobile-sheet-section-title"><span>▤</span><div><strong>Diário</strong><small>Registre o que importa</small></div></div>
+            <div className="mobile-sheet-fields">
+              <SheetField id="features" label="Reações e utilidades" value={fields.features} onChange={onChange} onFocus={onFocus} editor={editingMap.get("features")} multiline />
+              <SheetField id="spells" label="Ações e ataques" value={fields.spells} onChange={onChange} onFocus={onFocus} editor={editingMap.get("spells")} multiline />
+              <SheetField id="notes" label="Inventário e anotações" value={fields.notes} onChange={onChange} onFocus={onFocus} editor={editingMap.get("notes")} multiline />
+            </div>
+          </>
+        )}
+      </div>
+    </article>
+  );
+}
+
+function NimbleClassPanel({ layout, fields, onChange, onFocus, editingMap, fallbackName }: {
+  layout: NimbleLayoutDefinition;
+  fields: Record<string, string>;
+  onChange: (field: string, value: string) => void;
+  onFocus: (field: string | null) => void;
+  editingMap: Map<string, Presence>;
+  fallbackName: string;
 }) {
   const selectedFeatures = parseClassFeatures(fields.classFeatures);
+  const portraitName = fields.characterName || fallbackName;
   const style = {
     "--class-accent": layout.accent,
     "--class-accent-soft": layout.accentSoft,
@@ -1052,32 +1277,110 @@ function NimbleClassPanel({ layout, fields, onChange, onFocus, editingMap }: {
     onChange("classFeatures", JSON.stringify(next));
   };
 
+  // Ícone temático para cada classe
+  const getResourceIcon = (layoutId: string, resourceIndex: number) => {
+    const icons: Record<string, string[]> = {
+      BASE: ["◆", "◇"],
+      BERSERKER: ["⚔", "◆"],
+      COMMANDER: ["⚑", "★"],
+      HEXBINDER: ["◈", "◆"],
+      HUNTER: ["⦾", "◆"],
+      MAGE: ["◆", "★"],
+      OATHSWORN: ["✦", "♦"],
+      SHEPHERD: ["✦", "◆"],
+      SONGWEAVER: ["♪", "◆"],
+      STORMSHIFTER: ["◆", "◆"],
+      THE_CHEAT: ["◆", "◆"],
+      ZEPHYR: ["◈", "◆"],
+    };
+    return icons[layoutId]?.[resourceIndex] ?? "◆";
+  };
+
   return (
-    <section className={`nimble-class-panel ${layout.id === "BASE" ? "is-base" : ""}`} style={style} aria-label={`Layout ${layout.name}`}>
-      <div className="class-layout-heading">
-        <span className="class-layout-sigil" aria-hidden="true">{layout.id === "THE_CHEAT" ? "TC" : layout.name.slice(0, 1)}</span>
-        <div><small>Layout oficial desta ficha</small><h2>{layout.name}</h2><p>{layout.subtitle}</p></div>
-        <span className="class-layout-private">Por personagem</span>
-      </div>
-      <div className="class-layout-meta">
-        <SheetField id="proficiencies" label="Proficiências" value={fields.proficiencies} onChange={onChange} onFocus={onFocus} editor={editingMap.get("proficiencies")} />
-        {layout.resource1 && <SheetField id="classResource1Current" label={`${layout.resource1} · atual`} value={fields.classResource1Current} onChange={onChange} onFocus={onFocus} editor={editingMap.get("classResource1Current")} compact />}
-        {layout.resource1 && <SheetField id="classResource1Max" label={`${layout.resource1} · máximo`} value={fields.classResource1Max} onChange={onChange} onFocus={onFocus} editor={editingMap.get("classResource1Max")} compact />}
-        {layout.resource2 && <SheetField id="classResource2Current" label={`${layout.resource2} · atual`} value={fields.classResource2Current} onChange={onChange} onFocus={onFocus} editor={editingMap.get("classResource2Current")} compact />}
-        {layout.resource2 && <SheetField id="classResource2Max" label={`${layout.resource2} · máximo`} value={fields.classResource2Max} onChange={onChange} onFocus={onFocus} editor={editingMap.get("classResource2Max")} compact />}
-        {layout.usesSpellTier && <SheetField id="spellTier" label="Spell Tier" value={fields.spellTier} onChange={onChange} onFocus={onFocus} editor={editingMap.get("spellTier")} compact />}
-      </div>
-      {layout.features.length > 0 ? (
-        <div className="class-features" onFocus={() => onFocus("classFeatures")} onBlur={(event) => { if (!event.currentTarget.contains(event.relatedTarget)) onFocus(null); }}>
-          <div className="class-features-title"><strong>{layout.featureTitle}</strong><small>Marque as habilidades escolhidas ou desbloqueadas.</small></div>
-          <div className="class-feature-grid">{layout.features.map((feature) => {
-            const checked = selectedFeatures.includes(feature);
-            return <button type="button" key={feature} className={checked ? "checked" : ""} aria-pressed={checked} onClick={() => toggleFeature(feature)}><i>{checked ? "✓" : ""}</i><span>{feature}</span></button>;
-          })}</div>
-          {editingMap.get("classFeatures") && <i className="editing-tag class-editing-tag" style={{ background: editingMap.get("classFeatures")?.color }}>{editingMap.get("classFeatures")?.displayName}</i>}
+    <div className="nimble-sheet" style={style} aria-label={`Ficha ${layout.name}`}>
+      <aside className="nimble-rail">
+        <div className="nimble-portrait-frame">
+          <div className={`nimble-portrait ${fields.portraitUrl ? "has-image" : ""}`}>
+            {fields.portraitUrl ? <>
+              {/* External portraits are intentionally loaded directly from the URL saved by the player. */}
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src={fields.portraitUrl} alt={`Retrato de ${portraitName}`} />
+            </> : <span>{initials(portraitName)}</span>}
+          </div>
         </div>
-      ) : <p className="base-layout-note">Use a ficha base para classes próprias. O Mestre pode trocar este layout individualmente a qualquer momento.</p>}
-    </section>
+        <div className="nimble-identity-fields">
+          <SheetField id="characterName" label="Nome do personagem" value={fields.characterName} onChange={onChange} onFocus={onFocus} editor={editingMap.get("characterName")} />
+          <SheetField id="ancestryClassLevel" label="Ancestralidade" value={fields.ancestryClassLevel} onChange={onChange} onFocus={onFocus} editor={editingMap.get("ancestryClassLevel")} />
+          <SheetField id="portraitUrl" label="URL do retrato" value={fields.portraitUrl} onChange={onChange} onFocus={onFocus} editor={editingMap.get("portraitUrl")} />
+        </div>
+        <div className="nimble-stars" aria-label="Atributos principais"><span>☆</span><span>★</span><span>★</span><span>☆</span></div>
+        <div className="nimble-attributes">{stats.map(([id, label]) => <SheetField key={id} id={id} label={label} value={fields[id]} onChange={onChange} onFocus={onFocus} editor={editingMap.get(id)} compact />)}</div>
+        <div className="nimble-skill-list">{skills.map(([id, label, ability]) => <SheetField key={id} id={id} label={label} hint={ability} value={fields[id]} onChange={onChange} onFocus={onFocus} editor={editingMap.get(id)} compact />)}</div>
+        <div className="nimble-inventory"><SheetField id="notes" label="Inventário · 10 + STR espaços" value={fields.notes} onChange={onChange} onFocus={onFocus} editor={editingMap.get("notes")} multiline /></div>
+      </aside>
+
+      <section className="nimble-main">
+        <header className="nimble-class-header">
+          <strong>{layout.name.toUpperCase()}</strong>
+          <SheetField id="level" label="Level" value={fields.level} onChange={onChange} onFocus={onFocus} editor={editingMap.get("level")} compact />
+        </header>
+        <div className="nimble-subheader">
+          <SheetField id="subclass" label="Subclass" value={fields.subclass} onChange={onChange} onFocus={onFocus} editor={editingMap.get("subclass")} />
+          <SheetField id="proficiencies" label="Proficiencies" value={fields.proficiencies} onChange={onChange} onFocus={onFocus} editor={editingMap.get("proficiencies")} />
+        </div>
+
+        <div className="nimble-combat-strip">
+          <SheetField id="size" label="Size" value={fields.size} onChange={onChange} onFocus={onFocus} editor={editingMap.get("size")} compact />
+          <SheetField id="speed" label="Speed" value={fields.speed} onChange={onChange} onFocus={onFocus} editor={editingMap.get("speed")} compact />
+          <SheetField id="initiative" label="Initiative" value={fields.initiative} onChange={onChange} onFocus={onFocus} editor={editingMap.get("initiative")} compact />
+          <SheetField id="armor" label="Armor" value={fields.armor} onChange={onChange} onFocus={onFocus} editor={editingMap.get("armor")} compact />
+          <SheetField id="hitDice" label="Hit Dice" value={fields.hitDice} onChange={onChange} onFocus={onFocus} editor={editingMap.get("hitDice")} compact />
+          <div className="nimble-hp-card"><label>Hit Points</label><div><SheetField id="hpCurrent" label="Atual" value={fields.hpCurrent} onChange={onChange} onFocus={onFocus} editor={editingMap.get("hpCurrent")} compact /><b>/</b><SheetField id="hpMax" label="Máx" value={fields.hpMax} onChange={onChange} onFocus={onFocus} editor={editingMap.get("hpMax")} compact /></div><SheetField id="tempHp" label="Temp" value={fields.tempHp} onChange={onChange} onFocus={onFocus} editor={editingMap.get("tempHp")} compact /></div>
+          <div className="nimble-wounds"><span aria-hidden="true">☠</span><label>Wounds</label><div>{[1,2,3,4,5].map((number) => <Wound key={number} id={`wound${number}`} checked={fields[`wound${number}`] === "true"} onChange={onChange} editor={editingMap.get(`wound${number}`)} onFocus={onFocus} />)}</div></div>
+        </div>
+
+        <div className="nimble-powers-row">
+          {layout.features.length > 0 ? (
+            <section className="nimble-features" onFocus={() => onFocus("classFeatures")} onBlur={(event) => { if (!event.currentTarget.contains(event.relatedTarget)) onFocus(null); }}>
+              <div className="nimble-section-title"><strong>{layout.featureTitle}</strong><small>Habilidades escolhidas</small></div>
+              <div>{layout.features.map((feature) => {
+                const checked = selectedFeatures.includes(feature);
+                return <button type="button" key={feature} className={checked ? "checked" : ""} aria-pressed={checked} onClick={() => toggleFeature(feature)}><i>{checked ? "●" : ""}</i><span>{feature}</span></button>;
+              })}</div>
+              {editingMap.get("classFeatures") && <i className="editing-tag" style={{ background: editingMap.get("classFeatures")?.color }}>{editingMap.get("classFeatures")?.displayName}</i>}
+            </section>
+          ) : (
+            <section className="nimble-features nimble-features-empty">
+              <div className="nimble-section-title"><strong>Características da classe</strong><small>Layout base</small></div>
+              <p className="base-layout-note">Use a ficha base para classes próprias. O Mestre pode trocar este layout individualmente a qualquer momento.</p>
+            </section>
+          )}
+          <div className="nimble-resources">
+            {layout.resource1 && (
+              <>
+                <div className="nimble-resource-card"><span className="nimble-drop" aria-hidden="true">{getResourceIcon(layout.id, 0)}</span><SheetField id="classResource1Current" label={layout.resource1} value={fields.classResource1Current} onChange={onChange} onFocus={onFocus} editor={editingMap.get("classResource1Current")} compact /><small>Máx. {fields.classResource1Max || "—"}</small></div>
+                <div className="nimble-resource-max"><SheetField id="classResource1Max" label="Máximo" value={fields.classResource1Max} onChange={onChange} onFocus={onFocus} editor={editingMap.get("classResource1Max")} compact /></div>
+              </>
+            )}
+            {layout.resource2 && (
+              <>
+                <div className="nimble-resource-card"><span className="nimble-drop" aria-hidden="true">{getResourceIcon(layout.id, 1)}</span><SheetField id="classResource2Current" label={layout.resource2} value={fields.classResource2Current} onChange={onChange} onFocus={onFocus} editor={editingMap.get("classResource2Current")} compact /><small>Máx. {fields.classResource2Max || "—"}</small></div>
+                <div className="nimble-resource-max"><SheetField id="classResource2Max" label="Máximo" value={fields.classResource2Max} onChange={onChange} onFocus={onFocus} editor={editingMap.get("classResource2Max")} compact /></div>
+              </>
+            )}
+            {layout.usesSpellTier && (
+              <div className="nimble-spell-tier"><span>Spell Tier</span><SheetField id="spellTier" label="Tier" value={fields.spellTier} onChange={onChange} onFocus={onFocus} editor={editingMap.get("spellTier")} compact /></div>
+            )}
+          </div>
+        </div>
+
+        <div className="nimble-writing-grid">
+          <SheetField id="features" label="Reactions & Utility" value={fields.features} onChange={onChange} onFocus={onFocus} editor={editingMap.get("features")} multiline />
+          <SheetField id="spells" label="Actions & Attacks" value={fields.spells} onChange={onChange} onFocus={onFocus} editor={editingMap.get("spells")} multiline />
+        </div>
+        <footer className="nimble-sheet-footer"><span>CIANNA'S STAGE</span><p>Layout {layout.name} · sincronizado em tempo real</p><span>NIMBLE</span></footer>
+      </section>
+    </div>
   );
 }
 
@@ -1151,8 +1454,12 @@ function ShadowmancerSheet({ fallbackName, layout, fields, onChange, onFocus, ed
             {editingMap.get("classFeatures") && <i className="editing-tag" style={{ background: editingMap.get("classFeatures")?.color }}>{editingMap.get("classFeatures")?.displayName}</i>}
           </section>
           <div className="shadow-resources">
-            <div className="shadow-resource-card"><span className="shadow-drop" aria-hidden="true">◆</span><SheetField id="classResource1Current" label="Pilfered Power" value={fields.classResource1Current} onChange={onChange} onFocus={onFocus} editor={editingMap.get("classResource1Current")} compact /><small>Máx. {fields.classResource1Max || "DEX"}</small></div>
-            <div className="shadow-resource-max"><SheetField id="classResource1Max" label="Máximo" value={fields.classResource1Max} onChange={onChange} onFocus={onFocus} editor={editingMap.get("classResource1Max")} compact /></div>
+            <div className="shadow-resource-card">
+              <span className="shadow-drop" aria-hidden="true">◆</span>
+              <SheetField id="classResource1Current" label="Pilfered Power (Atual)" value={fields.classResource1Current} onChange={onChange} onFocus={onFocus} editor={editingMap.get("classResource1Current")} compact />
+              <small>/</small>
+              <SheetField id="classResource1Max" label="Máximo" value={fields.classResource1Max} onChange={onChange} onFocus={onFocus} editor={editingMap.get("classResource1Max")} compact />
+            </div>
             <div className="shadow-spell-tier"><span>Spell Tier</span><SheetField id="spellTier" label="Tier" value={fields.spellTier} onChange={onChange} onFocus={onFocus} editor={editingMap.get("spellTier")} compact /></div>
           </div>
         </div>
@@ -1161,81 +1468,14 @@ function ShadowmancerSheet({ fallbackName, layout, fields, onChange, onFocus, ed
           <SheetField id="features" label="Reactions & Utility" value={fields.features} onChange={onChange} onFocus={onFocus} editor={editingMap.get("features")} multiline />
           <SheetField id="spells" label="Actions & Attacks" value={fields.spells} onChange={onChange} onFocus={onFocus} editor={editingMap.get("spells")} multiline />
         </div>
-        <footer className="shadow-sheet-footer"><span>RPG NEXUS</span><p>Layout Shadowmancer · sincronizado em tempo real</p><span>NIMBLE</span></footer>
+        <footer className="shadow-sheet-footer"><span>CIANNA'S STAGE</span><p>Layout Shadowmancer · sincronizado em tempo real</p><span>NIMBLE</span></footer>
       </section>
     </div>
   );
 }
 
-function AppHeader({ user, onLogout }: { user: User; onLogout: () => void }) {
-  return <header className="app-header"><div className="brand-lockup"><span className="brand-mark small">N</span><span>RPG NEXUS</span></div><div className="header-user"><span className="avatar self">{initials(user.displayName)}</span><div><strong>{user.displayName}</strong><small>@{user.username}</small></div><button onClick={onLogout} title="Sair" aria-label="Sair da conta">↗</button></div></header>;
-}
-
-function BasicAuth({ onAuthenticated }: { onAuthenticated: (user: User) => void }) {
-  const [mode, setMode] = useState<"login" | "register">("login");
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState("");
-
-  const changeMode = (nextMode: "login" | "register") => {
-    setMode(nextMode);
-    setError("");
-  };
-
-  const submit = async (event: React.FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    const form = new FormData(event.currentTarget);
-    const password = String(form.get("password") ?? "");
-    if (mode === "register" && password !== String(form.get("passwordConfirm") ?? "")) {
-      setError("As duas senhas precisam ser iguais.");
-      return;
-    }
-    setBusy(true);
-    setError("");
-    try {
-      const payload = mode === "register"
-        ? { displayName: form.get("displayName"), username: form.get("username"), password }
-        : { username: form.get("username"), password };
-      const data = await readJson<{ user: User }>(await fetch(`/api/auth/${mode === "register" ? "register" : "login"}`, {
-        method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(payload),
-      }));
-      onAuthenticated(data.user);
-    } catch (authError) {
-      setError(authError instanceof Error ? authError.message : "Não foi possível entrar.");
-    } finally { setBusy(false); }
-  };
-
-  return (
-    <main className="login-page basic-login-page">
-      <div className="login-orbit login-orbit-one" />
-      <div className="login-orbit login-orbit-two" />
-      <section className="basic-auth-card" aria-labelledby="auth-title">
-        <div className="auth-brand">
-          <div className="brand-lockup"><span className="brand-mark">N</span><span>RPG NEXUS</span></div>
-          <p className="eyebrow">Mesa virtual colaborativa</p>
-          <h1 id="auth-title">{mode === "login" ? "Bem-vindo de volta." : "Crie sua conta."}</h1>
-          <p>{mode === "login" ? "Entre com seu usuário e senha para acessar suas campanhas." : "Escolha um nick para aparecer na mesa e crie seus dados de acesso."}</p>
-        </div>
-
-        <div className="auth-tabs" role="tablist" aria-label="Acesso à conta">
-          <button type="button" role="tab" aria-selected={mode === "login"} className={mode === "login" ? "active" : ""} onClick={() => changeMode("login")}>Entrar</button>
-          <button type="button" role="tab" aria-selected={mode === "register"} className={mode === "register" ? "active" : ""} onClick={() => changeMode("register")}>Criar conta</button>
-        </div>
-
-        <form className="auth-form" onSubmit={(event) => void submit(event)}>
-          {mode === "register" && <label className="auth-field"><span>Nick na mesa</span><input name="displayName" required minLength={2} maxLength={30} autoComplete="nickname" placeholder="Ex.: Paparoxo" /></label>}
-          <label className="auth-field"><span>Usuário</span><input name="username" required minLength={3} maxLength={24} autoCapitalize="none" autoCorrect="off" autoComplete="username" placeholder="seu_usuario" /></label>
-          <label className="auth-field"><span>Senha</span><input name="password" type="password" required minLength={6} maxLength={128} autoComplete={mode === "login" ? "current-password" : "new-password"} placeholder="Mínimo de 6 caracteres" /></label>
-          {mode === "register" && <label className="auth-field"><span>Confirmar senha</span><input name="passwordConfirm" type="password" required minLength={6} maxLength={128} autoComplete="new-password" placeholder="Repita sua senha" /></label>}
-          {error && <div className="auth-error" role="alert">{error}</div>}
-          <button className="primary-button auth-submit" disabled={busy}>{busy ? "Aguarde..." : mode === "login" ? "Entrar" : "Criar conta"}<span aria-hidden="true">→</span></button>
-        </form>
-
-        <p className="auth-switch">{mode === "login" ? "Ainda não tem uma conta?" : "Já possui uma conta?"}<button type="button" onClick={() => changeMode(mode === "login" ? "register" : "login")}>{mode === "login" ? "Criar agora" : "Entrar"}</button></p>
-        <div className="auth-security"><i className="status-dot" /><span>Seus dados ficam protegidos e sua sessão permanece conectada neste dispositivo.</span></div>
-      </section>
-      <p className="login-note">RPG Nexus · Uma ficha viva para toda a mesa.</p>
-    </main>
-  );
+function AppHeader({ user, onLogout, onOpenSettings }: { user: User; onLogout: () => void; onOpenSettings: () => void }) {
+  return <header className="app-header"><div className="brand-lockup"><span className="brand-mark small">N</span><span>CIANNA'S STAGE</span></div><div className="header-user"><span className="avatar self">{initials(user.displayName)}</span><div><strong>{user.displayName}</strong><small>@{user.username}</small></div><button onClick={onOpenSettings} title="Perfil e integrações" aria-label="Abrir perfil e integrações">⚙</button><button onClick={onLogout} title="Sair" aria-label="Sair da conta">↗</button></div></header>;
 }
 
 function SheetField({ id, label, hint, value = "", onChange, onFocus, editor, compact = false, multiline = false }: {

@@ -6,41 +6,14 @@ import { ShieldCameras } from "./CameraSystem";
 type Role = "master" | "player";
 type RoomView = "sheet" | "scene" | "dice" | "camera" | "shield";
 type RollVisibility = "public" | "master_private";
-type ModuleId = "characters" | "cameras" | "scene" | "dice" | "text" | "youtube" | "pdf";
-type ModuleSpan = 4 | 6 | 8 | 12;
+type ModuleId = "characters" | "cameras" | "scene" | "dice";
 type Character = { id: string; name: string; assignedUserId: string | null; assignedDisplayName: string | null; updatedAt: string };
 type Scene = { hasImage: boolean; imageUrl: string | null; imageName: string | null; revealPercent: number; updatedAt: string | null };
 type DiceRoll = { id: string; rollerName: string; visibility: RollVisibility; diceSides: number; diceCount: number; modifier: number; results: number[]; total: number; createdAt: string };
-type ShieldLayout = {
-  order: ModuleId[];
-  hidden: ModuleId[];
-  spans: Partial<Record<ModuleId, ModuleSpan>>;
-  openCharacterIds: string[];
-  textNote: string;
-  youtubeUrl: string;
-  pdfUrl: string;
-};
+type ShieldLayout = { order: ModuleId[]; hidden: ModuleId[]; openCharacterIds: string[] };
 
-const DEFAULT_SPANS: Record<ModuleId, ModuleSpan> = { characters: 8, cameras: 8, scene: 4, dice: 4, text: 4, youtube: 4, pdf: 4 };
-const DEFAULT_LAYOUT: ShieldLayout = {
-  order: ["characters", "cameras", "scene", "dice", "text", "youtube", "pdf"],
-  hidden: [],
-  spans: DEFAULT_SPANS,
-  openCharacterIds: [],
-  textNote: "Anotações rápidas do Mestre...",
-  youtubeUrl: "",
-  pdfUrl: "",
-};
-const MODULE_NAMES: Record<ModuleId, string> = {
-  characters: "Fichas abertas",
-  cameras: "Câmeras",
-  scene: "Audiovisual",
-  dice: "Dados",
-  text: "Texto",
-  youtube: "YouTube",
-  pdf: "Visualizar PDF / livro",
-};
-const MODULE_ICONS: Record<ModuleId, string> = { characters: "◇", cameras: "▦", scene: "◈", dice: "✦", text: "≡", youtube: "▶", pdf: "▤" };
+const DEFAULT_LAYOUT: ShieldLayout = { order: ["characters", "cameras", "scene", "dice"], hidden: [], openCharacterIds: [] };
+const MODULE_NAMES: Record<ModuleId, string> = { characters: "Fichas abertas", cameras: "Câmeras", scene: "Cena audiovisual", dice: "Dados" };
 
 async function readJson<T>(response: Response): Promise<T> {
   const data = await response.json() as T & { error?: string };
@@ -63,6 +36,7 @@ export function ShieldWorkspace({ campaignCode, role, characters, scene, rolls, 
   const [layout, setLayout] = useState<ShieldLayout>(DEFAULT_LAYOUT);
   const [organizing, setOrganizing] = useState(false);
   const [message, setMessage] = useState("");
+  const [discordOpen, setDiscordOpen] = useState(false);
   const [characterFields, setCharacterFields] = useState<Record<string, Record<string, string>>>({});
   const draggedRef = useRef<ModuleId | null>(null);
 
@@ -91,10 +65,6 @@ export function ShieldWorkspace({ campaignCode, role, characters, scene, rolls, 
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Não foi possível salvar a organização.");
     }
-  };
-
-  const updateLayout = (changes: Partial<ShieldLayout>) => {
-    void saveLayout({ ...layout, ...changes });
   };
 
   useEffect(() => {
@@ -141,37 +111,40 @@ export function ShieldWorkspace({ campaignCode, role, characters, scene, rolls, 
   };
   const hideModule = (id: ModuleId) => void saveLayout({ ...layout, hidden: [...new Set([...layout.hidden, id])] });
   const showModule = (id: ModuleId) => void saveLayout({ ...layout, hidden: layout.hidden.filter((item) => item !== id) });
-  const resizeModule = (id: ModuleId) => {
-    const sizes: ModuleSpan[] = [4, 6, 8, 12];
-    const current = layout.spans[id] ?? DEFAULT_SPANS[id];
-    const next = sizes[(sizes.indexOf(current) + 1) % sizes.length];
-    updateLayout({ spans: { ...layout.spans, [id]: next } });
-  };
 
   const renderContent = (id: ModuleId) => {
     if (id === "characters") return <ShieldCharacters characters={characters} openIds={layout.openCharacterIds} fields={characterFields} onToggle={toggleCharacter} onOpen={onOpenCharacter} />;
     if (id === "cameras") return <ShieldCameras />;
     if (id === "scene") return <ShieldScene scene={scene} role={role} onReveal={onReveal} />;
-    if (id === "dice") return <ShieldDice rolls={rolls} role={role} busy={rollBusy} onRoll={onRoll} />;
-    if (id === "text") return <ShieldText value={layout.textNote} onChange={(textNote) => updateLayout({ textNote })} />;
-    if (id === "youtube") return <ShieldYoutube value={layout.youtubeUrl} onChange={(youtubeUrl) => updateLayout({ youtubeUrl })} />;
-    return <ShieldPdf value={layout.pdfUrl} onChange={(pdfUrl) => updateLayout({ pdfUrl })} />;
+    return <ShieldDice rolls={rolls} role={role} busy={rollBusy} onRoll={onRoll} />;
   };
 
   return (
     <div className="shield-shell">
-      <header className="shield-heading"><div><p className="eyebrow">Painel pessoal da campanha</p><h1>{role === "master" ? "Escudo do Mestre" : "Escudo do Player"}</h1><p>Reúna o que precisa acompanhar durante a sessão e organize os módulos do seu jeito.</p></div><div className="shield-heading-actions"><button className={organizing ? "active" : ""} onClick={() => setOrganizing((value) => !value)}>{organizing ? "Concluir organização" : "Organizar Escudo"}</button><button onClick={() => void saveLayout(DEFAULT_LAYOUT)}>Restaurar padrão</button></div></header>
+      <header className="shield-heading"><div><p className="eyebrow">Painel pessoal da campanha</p><h1>{role === "master" ? "Escudo do Mestre" : "Escudo do Player"}</h1><p>Reúna o que precisa acompanhar durante a sessão e organize os módulos do seu jeito.</p></div><div className="shield-heading-actions">{role === "master" && <button className={discordOpen ? "active" : ""} onClick={() => setDiscordOpen((value) => !value)}>Discord</button>}<button className={organizing ? "active" : ""} onClick={() => setOrganizing((value) => !value)}>{organizing ? "Concluir organização" : "Organizar Escudo"}</button><button onClick={() => void saveLayout(DEFAULT_LAYOUT)}>Restaurar padrão</button></div></header>
       {message && <div className="shield-message">{message}</div>}
+      {role === "master" && discordOpen && <DiscordCampaignSettings campaignCode={campaignCode} />}
       {organizing && <div className="shield-organize-tip"><span>↕</span><p>Arraste os módulos ou use as setas. Você também pode ocultar e reativar módulos; tudo fica salvo só para você.</p></div>}
       <div className={`shield-grid ${organizing ? "is-organizing" : ""}`}>{layout.order.filter((id) => !layout.hidden.includes(id)).map((id) => (
-        <section key={id} className={`shield-module shield-${id}`} style={{ gridColumn: `span ${layout.spans[id] ?? DEFAULT_SPANS[id]}` }} draggable={organizing} onDragStart={() => { draggedRef.current = id; }} onDragOver={(event) => event.preventDefault()} onDrop={() => dropModule(id)}>
-          <div className="shield-module-heading"><div><span>{MODULE_ICONS[id]}</span><strong>{MODULE_NAMES[id]}</strong></div><div>{organizing ? <><button onClick={() => moveModule(id, -1)} title="Mover para cima">↑</button><button onClick={() => moveModule(id, 1)} title="Mover para baixo">↓</button><button onClick={() => resizeModule(id)} title="Alterar tamanho">↔</button><button onClick={() => hideModule(id)} title="Ocultar módulo">×</button></> : <button onClick={() => onGoTo(id === "characters" ? "sheet" : id === "cameras" ? "camera" : id === "scene" ? "scene" : id === "dice" ? "dice" : "shield")}>{id === "characters" ? "Abrir ficha" : "Abrir módulo"} →</button>}</div></div>
+        <section key={id} className={`shield-module shield-${id}`} draggable={organizing} onDragStart={() => { draggedRef.current = id; }} onDragOver={(event) => event.preventDefault()} onDrop={() => dropModule(id)}>
+          <div className="shield-module-heading"><div><span>{id === "characters" ? "◇" : id === "cameras" ? "▦" : id === "scene" ? "◈" : "✦"}</span><strong>{MODULE_NAMES[id]}</strong></div><div>{organizing ? <><button onClick={() => moveModule(id, -1)} title="Mover para cima">↑</button><button onClick={() => moveModule(id, 1)} title="Mover para baixo">↓</button><button onClick={() => hideModule(id)} title="Ocultar módulo">×</button></> : <button onClick={() => onGoTo(id === "characters" ? "sheet" : id === "cameras" ? "camera" : id)}>{id === "characters" ? "Abrir ficha" : "Tela completa"} →</button>}</div></div>
           <div className="shield-module-body">{renderContent(id)}</div>
         </section>
       ))}</div>
       {organizing && layout.hidden.length > 0 && <div className="shield-hidden"><span>Módulos ocultos</span>{layout.hidden.map((id) => <button key={id} onClick={() => showModule(id)}>+ {MODULE_NAMES[id]}</button>)}</div>}
     </div>
   );
+}
+
+
+function DiscordCampaignSettings({ campaignCode }: { campaignCode: string }) {
+  const [form, setForm] = useState({ enabled: false, guildId: "", audiovisualChannelId: "", audiovisualVoiceChannelId: "", diceChannelId: "", musicChannelId: "" });
+  const [state, setState] = useState("Carregando integração...");
+  useEffect(() => { void (async () => { try { const data = await readJson<{ integration: typeof form }>(await fetch(`/api/campaigns/${campaignCode}/discord`, { cache: "no-store" })); setForm(data.integration); setState(""); } catch (error) { setState(error instanceof Error ? error.message : "Não foi possível carregar."); } })(); }, [campaignCode]);
+  const save = async (event: React.FormEvent) => { event.preventDefault(); setState("Salvando..."); try { await readJson(await fetch(`/api/campaigns/${campaignCode}/discord`, { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ integration: form }) })); setState("Integração Discord salva."); } catch (error) { setState(error instanceof Error ? error.message : "Não foi possível salvar."); } };
+  type ChannelKey = Exclude<keyof typeof form, "enabled">;
+  const field = (key: ChannelKey, label: string, hint: string) => <label><span>{label}</span><small>{hint}</small><input value={String(form[key] || "")} onChange={(event) => setForm((value) => ({ ...value, [key]: event.target.value }))} placeholder="ID numérico do Discord" /></label>;
+  return <form className="discord-campaign-settings" onSubmit={save}><div><p className="eyebrow">Integração Discord</p><h2>Canais autorizados da campanha</h2><p>Use o modo desenvolvedor do Discord para copiar IDs. PVRP não é sincronizado ou catalogado.</p></div><label className="discord-toggle"><input type="checkbox" checked={form.enabled} onChange={(event) => setForm((value) => ({ ...value, enabled: event.target.checked }))} /> Ativar integração nesta campanha</label>{field("guildId", "Servidor", "ID do servidor Discord da campanha")}{field("audiovisualChannelId", "Audiovisual (texto)", "Cenas, câmeras e links do Cianna")}{field("audiovisualVoiceChannelId", "Audiovisual (voz)", "Canal de voz onde o bot entrará para gravar, após o consentimento")}{field("diceChannelId", "Dados e avisos", "Rollem faz rolagens; StoryTeller publica avisos de sessão")}{field("musicChannelId", "Músicas", "Somente referência ao bot de música existente")}<button type="submit">Salvar integração</button>{state && <p className="discord-settings-state">{state}</p>}</form>;
 }
 
 function ShieldCharacters({ characters, openIds, fields, onToggle, onOpen }: {
@@ -193,29 +166,6 @@ function ShieldScene({ scene, role, onReveal }: { scene: Scene; role: Role; onRe
     <img src={scene.imageUrl} alt={scene.imageName ?? "Cena da campanha"} />
     <i className="shield-curtain left" /><i className="shield-curtain right" />
   </div>{role === "master" && <label><span>Abertura da cortina <b>{scene.revealPercent}%</b></span><input type="range" min="0" max="100" value={scene.revealPercent} onChange={(event) => onReveal(Number(event.target.value))} /></label>}</div>;
-}
-
-function ShieldText({ value, onChange }: { value: string; onChange: (value: string) => void }) {
-  return <label className="shield-note-field"><span>Anotações rápidas</span><textarea key={value} defaultValue={value} onBlur={(event) => onChange(event.currentTarget.value)} placeholder="Escreva pistas, NPCs, nomes ou lembretes..." /><small>Salvo no seu Escudo do Mestre</small></label>;
-}
-
-function youtubeEmbedUrl(value: string) {
-  try {
-    const url = new URL(value);
-    let videoId = url.searchParams.get("v");
-    if (!videoId && url.hostname === "youtu.be") videoId = url.pathname.slice(1);
-    if (!videoId || !/^[a-zA-Z0-9_-]{6,20}$/.test(videoId)) return null;
-    return `https://www.youtube-nocookie.com/embed/${videoId}`;
-  } catch { return null; }
-}
-
-function ShieldYoutube({ value, onChange }: { value: string; onChange: (value: string) => void }) {
-  const embed = youtubeEmbedUrl(value);
-  return <div className="shield-media-widget"><label><span>URL do vídeo</span><input key={value} defaultValue={value} onBlur={(event) => onChange(event.currentTarget.value.trim())} placeholder="https://youtube.com/watch?v=..." /></label>{embed ? <iframe src={embed} title="Vídeo do YouTube" loading="lazy" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowFullScreen /> : <div className="shield-content-empty compact"><span>▶</span><p>Adicione um link do YouTube para exibir o vídeo aqui.</p></div>}</div>;
-}
-
-function ShieldPdf({ value, onChange }: { value: string; onChange: (value: string) => void }) {
-  return <div className="shield-media-widget"><label><span>URL do PDF ou livro</span><input key={value} defaultValue={value} onBlur={(event) => onChange(event.currentTarget.value.trim())} placeholder="https://.../livro.pdf" /></label>{value ? <iframe src={value} title="Visualizador de PDF" loading="lazy" /> : <div className="shield-content-empty compact"><span>▤</span><p>Adicione o endereço de um PDF para consultar durante a sessão.</p></div>}</div>;
 }
 
 function ShieldDice({ rolls, role, busy, onRoll }: { rolls: DiceRoll[]; role: Role; busy: boolean; onRoll: (spec: { diceSides: number; diceCount: number; modifier: number; visibility: RollVisibility }) => void }) {
