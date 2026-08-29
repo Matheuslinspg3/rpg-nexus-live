@@ -4,11 +4,29 @@ export const dynamic = "force-dynamic";
 
 type Context = { params: Promise<{ code: string }> };
 type Membership = { campaignId: string; role: "master" | "player" };
-type ModuleId = "characters" | "cameras" | "scene" | "dice";
-type ShieldLayout = { order: ModuleId[]; hidden: ModuleId[]; openCharacterIds: string[] };
+type ModuleId = "characters" | "cameras" | "scene" | "dice" | "text" | "youtube" | "pdf";
+type ModuleSpan = 4 | 6 | 8 | 12;
+type ShieldLayout = {
+  order: ModuleId[];
+  hidden: ModuleId[];
+  spans: Partial<Record<ModuleId, ModuleSpan>>;
+  openCharacterIds: string[];
+  textNote: string;
+  youtubeUrl: string;
+  pdfUrl: string;
+};
 
-const MODULES = new Set<ModuleId>(["characters", "cameras", "scene", "dice"]);
-const DEFAULT_LAYOUT: ShieldLayout = { order: ["characters", "cameras", "scene", "dice"], hidden: [], openCharacterIds: [] };
+const MODULES = new Set<ModuleId>(["characters", "cameras", "scene", "dice", "text", "youtube", "pdf"]);
+const MODULE_SPANS: Record<ModuleId, ModuleSpan> = { characters: 8, cameras: 8, scene: 4, dice: 4, text: 4, youtube: 4, pdf: 4 };
+const DEFAULT_LAYOUT: ShieldLayout = {
+  order: ["characters", "cameras", "scene", "dice", "text", "youtube", "pdf"],
+  hidden: [],
+  spans: MODULE_SPANS,
+  openCharacterIds: [],
+  textNote: "Anotações rápidas do Mestre...",
+  youtubeUrl: "",
+  pdfUrl: "",
+};
 
 async function membership(supabase: any, code: string, email: string): Promise<Membership | null> {
   const { data } = await supabase
@@ -34,7 +52,15 @@ function parseLayout(value: unknown): ShieldLayout {
   const openCharacterIds = Array.isArray(source.openCharacterIds)
     ? [...new Set(source.openCharacterIds.filter((item): item is string => typeof item === "string" && item.length <= 80))].slice(0, 12)
     : [];
-  return { order, hidden, openCharacterIds };
+  const spansSource = source.spans && typeof source.spans === "object" ? source.spans as Record<string, unknown> : {};
+  const spans = { ...MODULE_SPANS } as Partial<Record<ModuleId, ModuleSpan>>;
+  for (const id of MODULES) {
+    const span = spansSource[id];
+    if (span === 4 || span === 6 || span === 8 || span === 12) spans[id] = span;
+  }
+  const cleanText = typeof source.textNote === "string" ? source.textNote.slice(0, 8000) : DEFAULT_LAYOUT.textNote;
+  const cleanUrl = (value: unknown) => typeof value === "string" ? value.trim().slice(0, 500) : "";
+  return { order, hidden, spans, openCharacterIds, textNote: cleanText, youtubeUrl: cleanUrl(source.youtubeUrl), pdfUrl: cleanUrl(source.pdfUrl) };
 }
 
 export async function GET(request: Request, context: Context) {
