@@ -4,7 +4,7 @@ export const dynamic = "force-dynamic";
 
 type Context = { params: Promise<{ code: string }> };
 type Membership = { campaignId: string; role: "master" | "player" };
-type ModuleId = "characters" | "cameras" | "scene" | "dice" | "text" | "youtube" | "pdf";
+type ModuleId = "characters" | "cameras" | "scene" | "dice" | "recordings" | "text" | "youtube" | "pdf";
 type ModuleSpan = 4 | 6 | 8 | 12;
 type ShieldLayout = {
   order: ModuleId[];
@@ -16,10 +16,10 @@ type ShieldLayout = {
   pdfUrl: string;
 };
 
-const MODULES = new Set<ModuleId>(["characters", "cameras", "scene", "dice", "text", "youtube", "pdf"]);
-const MODULE_SPANS: Record<ModuleId, ModuleSpan> = { characters: 8, cameras: 8, scene: 4, dice: 4, text: 4, youtube: 4, pdf: 4 };
+const MODULES = new Set<ModuleId>(["characters", "cameras", "scene", "dice", "recordings", "text", "youtube", "pdf"]);
+const MODULE_SPANS: Record<ModuleId, ModuleSpan> = { characters: 8, cameras: 8, scene: 4, dice: 4, recordings: 8, text: 4, youtube: 4, pdf: 4 };
 const DEFAULT_LAYOUT: ShieldLayout = {
-  order: ["characters", "cameras", "scene", "dice", "text", "youtube", "pdf"],
+  order: ["characters", "cameras", "scene", "dice", "recordings", "text", "youtube", "pdf"],
   hidden: [],
   spans: MODULE_SPANS,
   openCharacterIds: [],

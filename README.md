@@ -33,7 +33,7 @@ npm run dev
 
 ## Supabase Schema
 
-Execute `supabase-schema.sql` no SQL Editor do Supabase para criar as tabelas.
+Execute `supabase-schema.sql` no SQL Editor do Supabase para criar as tabelas. Para ativar os áudios, execute também `supabase/recording-audio.sql`; essa migration cria o bucket privado `session-audio`, as tabelas de gravação e o campo do canal de Gravações.
 
 ## Bucket Storage
 
