@@ -141,9 +141,22 @@ export function CameraProvider({
       // setLocalVideo()/setLocalAudio() from enabling it later.
       const callObject = DailyIframe.createCallObject({
         audioSource: true,
-        // Solicita Full HD sem obrigar câmeras mais simples a falhar.
-        videoSource: FULL_HD_VIDEO_SOURCE,
-      } as any);
+        // videoSource aceita apenas boolean, ID ou MediaStreamTrack no Daily.
+        videoSource: true,
+        // As restrições de captura devem ser enviadas por inputSettings.
+        inputSettings: {
+          video: {
+            settings: FULL_HD_VIDEO_SOURCE,
+          },
+        },
+        // Pede a maior qualidade de envio disponível para a câmera.
+        sendSettings: {
+          video: {
+            maxQuality: "high",
+            allowAdaptiveLayers: false,
+          },
+        },
+      });
       callRef.current = callObject;
 
       const refreshParticipants = () => {
