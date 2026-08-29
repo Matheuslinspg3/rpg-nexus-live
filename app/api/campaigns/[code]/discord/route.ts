@@ -2,10 +2,10 @@ import { db, getMembership, requireUser } from "@/lib/api-helpers";
 
 export const dynamic = "force-dynamic";
 type Context = { params: Promise<{ code: string }> };
-type DiscordIntegration = { enabled: boolean; guildId: string; audiovisualChannelId: string; audiovisualVoiceChannelId: string; diceChannelId: string; musicChannelId: string };
+type DiscordIntegration = { enabled: boolean; guildId: string; audiovisualChannelId: string; audiovisualVoiceChannelId: string; recordingTextChannelId: string; diceChannelId: string; musicChannelId: string };
 
-const EMPTY: DiscordIntegration = { enabled: false, guildId: "", audiovisualChannelId: "", audiovisualVoiceChannelId: "", diceChannelId: "", musicChannelId: "" };
-const keys = ["guildId", "audiovisualChannelId", "audiovisualVoiceChannelId", "diceChannelId", "musicChannelId"] as const;
+const EMPTY: DiscordIntegration = { enabled: false, guildId: "", audiovisualChannelId: "", audiovisualVoiceChannelId: "", recordingTextChannelId: "", diceChannelId: "", musicChannelId: "" };
+const keys = ["guildId", "audiovisualChannelId", "audiovisualVoiceChannelId", "recordingTextChannelId", "diceChannelId", "musicChannelId"] as const;
 
 function parse(value: unknown): DiscordIntegration {
   const source = value && typeof value === "object" ? value as Record<string, unknown> : {};
@@ -20,7 +20,7 @@ export async function GET(_: Request, context: Context) {
   const member = await getMembership(code, user.email);
   if (!member) return Response.json({ error: "Acesso negado." }, { status: 403 });
   const { data } = await db().from("discord_campaign_integrations").select("*").eq("campaign_id", member.campaignId).single();
-  return Response.json({ integration: data ? { enabled: data.enabled, guildId: data.guild_id || "", audiovisualChannelId: data.audiovisual_channel_id || "", audiovisualVoiceChannelId: data.audiovisual_voice_channel_id || "", diceChannelId: data.dice_channel_id || "", musicChannelId: data.music_channel_id || "" } : EMPTY, canManage: member.role === "master", pvrpExcluded: true });
+  return Response.json({ integration: data ? { enabled: data.enabled, guildId: data.guild_id || "", audiovisualChannelId: data.audiovisual_channel_id || "", audiovisualVoiceChannelId: data.audiovisual_voice_channel_id || "", recordingTextChannelId: data.recording_text_channel_id || "", diceChannelId: data.dice_channel_id || "", musicChannelId: data.music_channel_id || "" } : EMPTY, canManage: member.role === "master", pvrpExcluded: true });
 }
 
 export async function PUT(request: Request, context: Context) {
@@ -30,8 +30,8 @@ export async function PUT(request: Request, context: Context) {
   const member = await getMembership(code, user.email);
   if (!member || member.role !== "master") return Response.json({ error: "Somente o Mestre pode configurar o Discord." }, { status: 403 });
   const integration = parse((await request.json() as { integration?: unknown }).integration);
-  if (integration.enabled && (!integration.guildId || !integration.audiovisualChannelId || !integration.audiovisualVoiceChannelId || !integration.diceChannelId || !integration.musicChannelId)) return Response.json({ error: "Informe servidor, Audiovisual, canal de voz, Dados e Música." }, { status: 400 });
-  const { error } = await db().from("discord_campaign_integrations").upsert({ campaign_id: member.campaignId, enabled: integration.enabled, guild_id: integration.guildId || null, audiovisual_channel_id: integration.audiovisualChannelId || null, audiovisual_voice_channel_id: integration.audiovisualVoiceChannelId || null, dice_channel_id: integration.diceChannelId || null, music_channel_id: integration.musicChannelId || null, updated_by: user.email, updated_at: new Date().toISOString() });
+  if (integration.enabled && (!integration.guildId || !integration.audiovisualChannelId || !integration.audiovisualVoiceChannelId || !integration.recordingTextChannelId || !integration.diceChannelId || !integration.musicChannelId)) return Response.json({ error: "Informe servidor, Audiovisual, canal da mesa (voz), Gravações, Dados e Música." }, { status: 400 });
+  const { error } = await db().from("discord_campaign_integrations").upsert({ campaign_id: member.campaignId, enabled: integration.enabled, guild_id: integration.guildId || null, audiovisual_channel_id: integration.audiovisualChannelId || null, audiovisual_voice_channel_id: integration.audiovisualVoiceChannelId || null, recording_text_channel_id: integration.recordingTextChannelId || null, dice_channel_id: integration.diceChannelId || null, music_channel_id: integration.musicChannelId || null, updated_by: user.email, updated_at: new Date().toISOString() });
   if (error) return Response.json({ error: "Não foi possível salvar a integração." }, { status: 500 });
   return Response.json({ ok: true, integration, pvrpExcluded: true });
 }

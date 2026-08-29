@@ -2,11 +2,12 @@
 
 import { useEffect, useRef, useState, type CSSProperties } from "react";
 import { ShieldCameras } from "./CameraSystem";
+import { RecordingLibrary } from "./RecordingsLibrary";
 
 type Role = "master" | "player";
 type RoomView = "sheet" | "scene" | "dice" | "camera" | "shield";
 type RollVisibility = "public" | "master_private";
-type ModuleId = "characters" | "cameras" | "scene" | "dice" | "text" | "youtube" | "pdf";
+type ModuleId = "characters" | "cameras" | "scene" | "dice" | "recordings" | "text" | "youtube" | "pdf";
 type ModuleSpan = 4 | 6 | 8 | 12;
 type Character = { id: string; name: string; assignedUserId: string | null; assignedDisplayName: string | null; updatedAt: string };
 type Scene = { hasImage: boolean; imageUrl: string | null; imageName: string | null; revealPercent: number; updatedAt: string | null };
@@ -21,9 +22,9 @@ type ShieldLayout = {
   pdfUrl: string;
 };
 
-const DEFAULT_SPANS: Record<ModuleId, ModuleSpan> = { characters: 8, cameras: 8, scene: 4, dice: 4, text: 4, youtube: 4, pdf: 4 };
+const DEFAULT_SPANS: Record<ModuleId, ModuleSpan> = { characters: 8, cameras: 8, scene: 4, dice: 4, recordings: 8, text: 4, youtube: 4, pdf: 4 };
 const DEFAULT_LAYOUT: ShieldLayout = {
-  order: ["characters", "cameras", "scene", "dice", "text", "youtube", "pdf"],
+  order: ["characters", "cameras", "scene", "dice", "recordings", "text", "youtube", "pdf"],
   hidden: [],
   spans: DEFAULT_SPANS,
   openCharacterIds: [],
@@ -34,13 +35,14 @@ const DEFAULT_LAYOUT: ShieldLayout = {
 const MODULE_NAMES: Record<ModuleId, string> = {
   characters: "Fichas abertas",
   cameras: "Câmeras",
+  recordings: "Gravações da mesa",
   scene: "Audiovisual",
   dice: "Dados",
   text: "Texto",
   youtube: "YouTube",
   pdf: "Visualizar PDF / livro",
 };
-const MODULE_ICONS: Record<ModuleId, string> = { characters: "◇", cameras: "▦", scene: "◈", dice: "✦", text: "≡", youtube: "▶", pdf: "▤" };
+const MODULE_ICONS: Record<ModuleId, string> = { characters: "◇", cameras: "▦", recordings: "♫", scene: "◈", dice: "✦", text: "≡", youtube: "▶", pdf: "▤" };
 
 async function readJson<T>(response: Response): Promise<T> {
   const data = await response.json() as T & { error?: string };
@@ -148,6 +150,7 @@ export function ShieldWorkspace({ campaignCode, role, characters, scene, rolls, 
   const renderContent = (id: ModuleId) => {
     if (id === "characters") return <ShieldCharacters characters={characters} openIds={layout.openCharacterIds} fields={characterFields} onToggle={toggleCharacter} onOpen={onOpenCharacter} />;
     if (id === "cameras") return <ShieldCameras />;
+    if (id === "recordings") return <RecordingLibrary campaignCode={campaignCode} />;
     if (id === "scene") return <ShieldScene scene={scene} role={role} onReveal={onReveal} />;
     if (id === "dice") return <ShieldDice rolls={rolls} role={role} busy={rollBusy} onRoll={onRoll} />;
     if (id === "text") return <ShieldText value={layout.textNote} onChange={(textNote) => void saveLayout({ ...layout, textNote })} />;
@@ -174,13 +177,13 @@ export function ShieldWorkspace({ campaignCode, role, characters, scene, rolls, 
 
 
 function DiscordCampaignSettings({ campaignCode }: { campaignCode: string }) {
-  const [form, setForm] = useState({ enabled: false, guildId: "", audiovisualChannelId: "", audiovisualVoiceChannelId: "", diceChannelId: "", musicChannelId: "" });
+  const [form, setForm] = useState({ enabled: false, guildId: "", audiovisualChannelId: "", audiovisualVoiceChannelId: "", recordingTextChannelId: "", diceChannelId: "", musicChannelId: "" });
   const [state, setState] = useState("Carregando integração...");
   useEffect(() => { void (async () => { try { const data = await readJson<{ integration: typeof form }>(await fetch(`/api/campaigns/${campaignCode}/discord`, { cache: "no-store" })); setForm(data.integration); setState(""); } catch (error) { setState(error instanceof Error ? error.message : "Não foi possível carregar."); } })(); }, [campaignCode]);
   const save = async (event: React.FormEvent) => { event.preventDefault(); setState("Salvando..."); try { await readJson(await fetch(`/api/campaigns/${campaignCode}/discord`, { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ integration: form }) })); setState("Integração Discord salva."); } catch (error) { setState(error instanceof Error ? error.message : "Não foi possível salvar."); } };
   type ChannelKey = Exclude<keyof typeof form, "enabled">;
   const field = (key: ChannelKey, label: string, hint: string) => <label><span>{label}</span><small>{hint}</small><input value={String(form[key] || "")} onChange={(event) => setForm((value) => ({ ...value, [key]: event.target.value }))} placeholder="ID numérico do Discord" /></label>;
-  return <form className="discord-campaign-settings" onSubmit={save}><div><p className="eyebrow">Integração Discord</p><h2>Canais autorizados da campanha</h2><p>Use o modo desenvolvedor do Discord para copiar IDs. PVRP não é sincronizado ou catalogado.</p><a className="discord-install-link" href="/api/discord/install">Adicionar o bot ao Discord ↗</a><small>O link usa o Application ID configurado pelo administrador na Vercel.</small></div><label className="discord-toggle"><input type="checkbox" checked={form.enabled} onChange={(event) => setForm((value) => ({ ...value, enabled: event.target.checked }))} /> Ativar integração nesta campanha</label>{field("guildId", "Servidor", "ID do servidor Discord da campanha")}{field("audiovisualChannelId", "Audiovisual (texto)", "Cenas, câmeras e links do Cianna")}{field("audiovisualVoiceChannelId", "Audiovisual (voz)", "Canal de voz onde o bot entrará para gravar, após o consentimento")}{field("diceChannelId", "Dados e avisos", "Rollem faz rolagens; StoryTeller publica avisos de sessão")}{field("musicChannelId", "Músicas", "Somente referência ao bot de música existente")}<button type="submit">Salvar integração</button>{state && <p className="discord-settings-state">{state}</p>}</form>;
+  return <form className="discord-campaign-settings" onSubmit={save}><div><p className="eyebrow">Integração Discord</p><h2>Canais autorizados da campanha</h2><p>Use o modo desenvolvedor do Discord para copiar IDs. PVRP não é sincronizado ou catalogado.</p><a className="discord-install-link" href="/api/discord/install">Adicionar o bot ao Discord ↗</a><small>O link usa o Application ID configurado pelo administrador na Vercel.</small></div><label className="discord-toggle"><input type="checkbox" checked={form.enabled} onChange={(event) => setForm((value) => ({ ...value, enabled: event.target.checked }))} /> Ativar integração nesta campanha</label>{field("guildId", "Servidor", "ID do servidor Discord da campanha")}{field("audiovisualChannelId", "Audiovisual (texto)", "Cenas, câmeras e links do Cianna")}{field("audiovisualVoiceChannelId", "Canal da mesa (voz)", "Canal de voz onde o bot entrará para gravar, após o consentimento")}{field("recordingTextChannelId", "Gravações (texto)", "Canal onde o bot publicará os áudios convertidos da sessão")}{field("diceChannelId", "Dados e avisos", "Rollem faz rolagens; StoryTeller publica avisos de sessão")}{field("musicChannelId", "Músicas", "Somente referência ao bot de música existente")}<button type="submit">Salvar integração</button>{state && <p className="discord-settings-state">{state}</p>}</form>;
 }
 
 function ShieldCharacters({ characters, openIds, fields, onToggle, onOpen }: {
