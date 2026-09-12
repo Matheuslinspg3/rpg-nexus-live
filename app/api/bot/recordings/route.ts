@@ -7,7 +7,7 @@ type AudioPartInput = { fileName?: unknown; sizeBytes?: unknown; durationSeconds
 
 function allowed(request: Request) {
   const expected = process.env.CIANNA_BOT_API_KEY;
-  const received = request.headers.get("authorization")?.replace(/^Bearer\\s+/i, "");
+  const received = request.headers.get("authorization")?.replace(/^Bearer\s+/i, "");
   return Boolean(expected && received && received === expected);
 }
 
@@ -26,7 +26,7 @@ function cleanIso(value: unknown, fallback: string) {
 }
 
 function uploadUrl(path: string, token: string) {
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL?.replace(/\\/$/, "");
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL?.replace(/\/$/, "");
   if (!supabaseUrl) throw new Error("NEXT_PUBLIC_SUPABASE_URL não configurada.");
   const encodedPath = path.split("/").map((part) => encodeURIComponent(part)).join("/");
   return supabaseUrl + "/storage/v1/object/upload/sign/" + BUCKET + "/" + encodedPath + "?token=" + encodeURIComponent(token);
