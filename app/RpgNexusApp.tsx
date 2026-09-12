@@ -6,6 +6,7 @@ import { getNimbleLayout, NIMBLE_LAYOUTS, type NimbleLayoutDefinition, type Nimb
 import { ShieldWorkspace } from "./ShieldWorkspace";
 import { createBrowserClient } from "@/lib/supabase";
 import { ProfileSettings } from "./components/ProfileSettings";
+import { PortraitUploader } from "./components/PortraitUploader";
 
 type User = { id: string; displayName: string; username: string; discordName?: string | null };
 type Role = "master" | "player";
@@ -649,6 +650,48 @@ export default function RpgNexusApp({ initialUser }: { initialUser: User | null 
     } finally { setCharacterAction(false); }
   };
 
+  const importCharacter = async (file: File) => {
+    if (!room) return;
+    setCharacterAction(true);
+    setNotice("");
+    try {
+      const form = new FormData();
+      form.set("file", file);
+      const data = await readJson<{ character: Character }>(await fetch(
+        `/api/campaigns/${room.campaign.code}/characters/import`,
+        { method: "POST", body: form },
+      ));
+      roomViewRef.current = "sheet";
+      setRoomView("sheet");
+      selectedCharacterRef.current = data.character.id;
+      setSelectedCharacterId(data.character.id);
+      setFields({});
+      await fetchRoom(room.campaign.code, true);
+      await fetchCharacter(room.campaign.code, data.character.id);
+      setSidebarOpen(false);
+      setNotice("Ficha importada com sucesso!");
+      window.setTimeout(() => setNotice(""), 3000);
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : "Não foi possível importar a ficha.");
+    } finally { setCharacterAction(false); }
+  };
+
+  const uploadPortrait = async (characterId: string, file: File) => {
+    if (!room) return;
+    try {
+      const form = new FormData();
+      form.set("image", file);
+      const data = await readJson<{ portraitUrl: string }>(await fetch(
+        `/api/campaigns/${room.campaign.code}/characters/${characterId}/portrait`,
+        { method: "POST", body: form }
+      ));
+      updateField("portraitUrl", data.portraitUrl);
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : "Não foi possível enviar a imagem.");
+      window.setTimeout(() => setNotice(""), 3000);
+    }
+  };
+
   const updateCharacter = async (characterId: string, changes: { name?: string; assignedUserId?: string | null }) => {
     if (!room) return;
     setCharacterAction(true);
@@ -829,6 +872,12 @@ export default function RpgNexusApp({ initialUser }: { initialUser: User | null 
                 <select aria-label="Layout da nova ficha" value={newCharacterLayout} onChange={(event) => setNewCharacterLayout(event.target.value as NimbleLayoutId)} disabled={characterAction}>
                   {NIMBLE_LAYOUTS.map((layout) => <option key={layout.id} value={layout.id}>{layout.name}</option>)}
                 </select>
+                <div style={{ marginTop: '8px', display: 'flex', gap: '8px' }}>
+                  <label className={`import-pdf-button ${characterAction ? 'disabled' : ''}`} style={{ flex: 1, padding: '6px', fontSize: '12px', textAlign: 'center', background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '4px', cursor: characterAction ? 'not-allowed' : 'pointer', color: characterAction ? '#666' : '#fff' }}>
+                    <input type="file" accept="application/pdf" style={{ display: 'none' }} disabled={characterAction} onChange={(event) => { const file = event.target.files?.[0]; if (file) void importCharacter(file); event.currentTarget.value = ""; }} />
+                    {characterAction ? "Importando..." : "Importar PDF"}
+                  </label>
+                </div>
               </form>
             )}
           </section>
@@ -891,12 +940,12 @@ export default function RpgNexusApp({ initialUser }: { initialUser: User | null 
                 ))}
             <div className="desktop-nimble-sheet">
               {activeLayout.id === "SHADOWMANCER" ? (
-                <ShadowmancerSheet fallbackName={selectedCharacter.name} layout={activeLayout} fields={fields} onChange={updateField} onFocus={focusField} editingMap={editingMap} />
+                <ShadowmancerSheet characterId={selectedCharacter.id} fallbackName={selectedCharacter.name} layout={activeLayout} fields={fields} onChange={updateField} onFocus={focusField} editingMap={editingMap} onUploadPortrait={(file) => uploadPortrait(selectedCharacter.id, file)} />
               ) : (
-                <NimbleClassPanel layout={activeLayout} fields={fields} onChange={updateField} onFocus={focusField} editingMap={editingMap} fallbackName={selectedCharacter.name} />
+                <NimbleClassPanel characterId={selectedCharacter.id} layout={activeLayout} fields={fields} onChange={updateField} onFocus={focusField} editingMap={editingMap} fallbackName={selectedCharacter.name} onUploadPortrait={(file) => uploadPortrait(selectedCharacter.id, file)} />
               )}
             </div>
-            <MobileNimbleSheet layout={activeLayout} fields={fields} onChange={updateField} onFocus={focusField} editingMap={editingMap} fallbackName={selectedCharacter.name} />
+            <MobileNimbleSheet characterId={selectedCharacter.id} layout={activeLayout} fields={fields} onChange={updateField} onFocus={focusField} editingMap={editingMap} fallbackName={selectedCharacter.name} onUploadPortrait={(file) => uploadPortrait(selectedCharacter.id, file)} />
             </div>
           </>}
         </section>
@@ -1118,13 +1167,15 @@ function CharacterAdminBar({ character, players, busy, layout, onLayoutChange, o
 
 type MobileSheetPage = "profile" | "combat" | "skills" | "journal";
 
-function MobileNimbleSheet({ layout, fields, onChange, onFocus, editingMap, fallbackName }: {
+function MobileNimbleSheet({ characterId, layout, fields, onChange, onFocus, editingMap, fallbackName, onUploadPortrait }: {
+  characterId: string;
   layout: NimbleLayoutDefinition;
   fields: Record<string, string>;
   onChange: (field: string, value: string) => void;
   onFocus: (field: string | null) => void;
   editingMap: Map<string, Presence>;
   fallbackName: string;
+  onUploadPortrait: (file: File) => Promise<void>;
 }) {
   const [page, setPage] = useState<MobileSheetPage>("profile");
   const portraitName = fields.characterName || fallbackName;
@@ -1147,10 +1198,7 @@ function MobileNimbleSheet({ layout, fields, onChange, onFocus, editingMap, fall
     <article className="character-sheet mobile-nimble-sheet" aria-label={`Ficha mobile ${layout.name}`}>
       <header className="mobile-sheet-heading">
         <div className={`mobile-sheet-portrait ${fields.portraitUrl ? "has-image" : ""}`}>
-          {fields.portraitUrl ? (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img src={fields.portraitUrl} alt={`Retrato de ${portraitName}`} />
-          ) : <span>{initials(portraitName)}</span>}
+          <PortraitUploader currentUrl={fields.portraitUrl} fallbackName={portraitName} onUpload={onUploadPortrait} onUrlChange={(url) => onChange("portraitUrl", url)} />
         </div>
         <div>
           <p>Ficha Nimble</p>
@@ -1184,7 +1232,6 @@ function MobileNimbleSheet({ layout, fields, onChange, onFocus, editingMap, fall
               <SheetField id="subclass" label="Subclasse" value={fields.subclass} onChange={onChange} onFocus={onFocus} editor={editingMap.get("subclass")} />
               <SheetField id="level" label="Nível" value={fields.level} onChange={onChange} onFocus={onFocus} editor={editingMap.get("level")} />
               <SheetField id="heightWeightSpeed" label="Altura, peso e deslocamento" value={fields.heightWeightSpeed} onChange={onChange} onFocus={onFocus} editor={editingMap.get("heightWeightSpeed")} />
-              <SheetField id="portraitUrl" label="URL do retrato" value={fields.portraitUrl} onChange={onChange} onFocus={onFocus} editor={editingMap.get("portraitUrl")} />
               <SheetField id="proficiencies" label="Proficiências" value={fields.proficiencies} onChange={onChange} onFocus={onFocus} editor={editingMap.get("proficiencies")} />
             </div>
           </>
@@ -1255,13 +1302,15 @@ function MobileNimbleSheet({ layout, fields, onChange, onFocus, editingMap, fall
   );
 }
 
-function NimbleClassPanel({ layout, fields, onChange, onFocus, editingMap, fallbackName }: {
+function NimbleClassPanel({ characterId, layout, fields, onChange, onFocus, editingMap, fallbackName, onUploadPortrait }: {
+  characterId: string;
   layout: NimbleLayoutDefinition;
   fields: Record<string, string>;
   onChange: (field: string, value: string) => void;
   onFocus: (field: string | null) => void;
   editingMap: Map<string, Presence>;
   fallbackName: string;
+  onUploadPortrait: (file: File) => Promise<void>;
 }) {
   const selectedFeatures = parseClassFeatures(fields.classFeatures);
   const portraitName = fields.characterName || fallbackName;
@@ -1301,17 +1350,12 @@ function NimbleClassPanel({ layout, fields, onChange, onFocus, editingMap, fallb
       <aside className="nimble-rail">
         <div className="nimble-portrait-frame">
           <div className={`nimble-portrait ${fields.portraitUrl ? "has-image" : ""}`}>
-            {fields.portraitUrl ? <>
-              {/* External portraits are intentionally loaded directly from the URL saved by the player. */}
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src={fields.portraitUrl} alt={`Retrato de ${portraitName}`} />
-            </> : <span>{initials(portraitName)}</span>}
+            <PortraitUploader currentUrl={fields.portraitUrl} fallbackName={portraitName} onUpload={onUploadPortrait} onUrlChange={(url) => onChange("portraitUrl", url)} />
           </div>
         </div>
         <div className="nimble-identity-fields">
           <SheetField id="characterName" label="Nome do personagem" value={fields.characterName} onChange={onChange} onFocus={onFocus} editor={editingMap.get("characterName")} />
           <SheetField id="ancestryClassLevel" label="Ancestralidade" value={fields.ancestryClassLevel} onChange={onChange} onFocus={onFocus} editor={editingMap.get("ancestryClassLevel")} />
-          <SheetField id="portraitUrl" label="URL do retrato" value={fields.portraitUrl} onChange={onChange} onFocus={onFocus} editor={editingMap.get("portraitUrl")} />
         </div>
         <div className="nimble-stars" aria-label="Atributos principais"><span>☆</span><span>★</span><span>★</span><span>☆</span></div>
         <div className="nimble-attributes">{stats.map(([id, label]) => <SheetField key={id} id={id} label={label} value={fields[id]} onChange={onChange} onFocus={onFocus} editor={editingMap.get(id)} compact />)}</div>
@@ -1384,13 +1428,15 @@ function NimbleClassPanel({ layout, fields, onChange, onFocus, editingMap, fallb
   );
 }
 
-function ShadowmancerSheet({ fallbackName, layout, fields, onChange, onFocus, editingMap }: {
+function ShadowmancerSheet({ characterId, fallbackName, layout, fields, onChange, onFocus, editingMap, onUploadPortrait }: {
+  characterId: string;
   fallbackName: string;
   layout: NimbleLayoutDefinition;
   fields: Record<string, string>;
   onChange: (field: string, value: string) => void;
   onFocus: (field: string | null) => void;
   editingMap: Map<string, Presence>;
+  onUploadPortrait: (file: File) => Promise<void>;
 }) {
   const selectedFeatures = parseClassFeatures(fields.classFeatures);
   const portraitName = fields.characterName || fallbackName;
@@ -1406,17 +1452,12 @@ function ShadowmancerSheet({ fallbackName, layout, fields, onChange, onFocus, ed
       <aside className="shadow-rail">
         <div className="shadow-portrait-frame">
           <div className={`shadow-portrait ${fields.portraitUrl ? "has-image" : ""}`}>
-            {fields.portraitUrl ? <>
-              {/* External portraits are intentionally loaded directly from the URL saved by the player. */}
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src={fields.portraitUrl} alt={`Retrato de ${portraitName}`} />
-            </> : <span>{initials(portraitName)}</span>}
+            <PortraitUploader currentUrl={fields.portraitUrl} fallbackName={portraitName} onUpload={onUploadPortrait} onUrlChange={(url) => onChange("portraitUrl", url)} />
           </div>
         </div>
         <div className="shadow-identity-fields">
           <SheetField id="characterName" label="Nome do personagem" value={fields.characterName} onChange={onChange} onFocus={onFocus} editor={editingMap.get("characterName")} />
           <SheetField id="ancestryClassLevel" label="Ancestralidade" value={fields.ancestryClassLevel} onChange={onChange} onFocus={onFocus} editor={editingMap.get("ancestryClassLevel")} />
-          <SheetField id="portraitUrl" label="URL do retrato" value={fields.portraitUrl} onChange={onChange} onFocus={onFocus} editor={editingMap.get("portraitUrl")} />
         </div>
         <div className="shadow-stars" aria-label="Atributos principais"><span>☆</span><span>★</span><span>★</span><span>☆</span></div>
         <div className="shadow-attributes">{stats.map(([id, label]) => <SheetField key={id} id={id} label={label} value={fields[id]} onChange={onChange} onFocus={onFocus} editor={editingMap.get(id)} compact />)}</div>

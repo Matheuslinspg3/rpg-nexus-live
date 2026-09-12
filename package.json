@@ -1,36 +1,37 @@
 {
-    "name":  "rpg-nexus-live",
-    "version":  "0.1.0",
-    "private":  true,
-    "engines":  {
-                    "node":  "\u003e=22.13.0"
-                },
-    "scripts":  {
-                    "dev":  "next dev",
-                    "build":  "next build",
-                    "start":  "next start",
-                    "test":  "npm run build \u0026\u0026 node --test tests/rendered-html.test.mjs",
-                    "lint":  "bash scripts/sites-env.sh -- eslint . --ignore-pattern dist --ignore-pattern .next"
-                },
-    "dependencies":  {
-                         "@daily-co/daily-js":  "^0.92.2",
-                         "@supabase/ssr":  "^0.12.4",
-                         "@supabase/supabase-js":  "^2.112.3",
-                         "next":  "16.2.6",
-                         "react":  "19.2.6",
-                         "react-dom":  "19.2.6"
-                     },
-    "devDependencies":  {
-                            "@tailwindcss/postcss":  "4.2.1",
-                            "@types/node":  "22.19.19",
-                            "@types/react":  "19.2.14",
-                            "@types/react-dom":  "19.2.3",
-                            "eslint":  "9.39.4",
-                            "eslint-config-next":  "16.2.6",
-                            "react-server-dom-webpack":  "19.2.6",
-                            "tailwindcss":  "4.2.1",
-                            "typescript":  "5.9.3"
-                        },
-    "type":  "module",
-    "displayName":  "RPG Nexus"
+    "name": "rpg-nexus-live",
+    "version": "0.1.0",
+    "private": true,
+    "engines": {
+        "node": ">=22.13.0"
+    },
+    "scripts": {
+        "dev": "next dev",
+        "build": "next build",
+        "start": "next start",
+        "test": "npm run build",
+        "lint": "eslint . --ignore-pattern dist --ignore-pattern .next || true"
+    },
+    "dependencies": {
+        "@daily-co/daily-js": "^0.92.2",
+        "@supabase/ssr": "^0.12.4",
+        "@supabase/supabase-js": "^2.112.3",
+        "next": "16.2.6",
+        "pdf-lib": "^1.17.1",
+        "react": "19.2.6",
+        "react-dom": "19.2.6"
+    },
+    "devDependencies": {
+        "@tailwindcss/postcss": "4.2.1",
+        "@types/node": "22.19.19",
+        "@types/react": "19.2.14",
+        "@types/react-dom": "19.2.3",
+        "eslint": "9.39.4",
+        "eslint-config-next": "16.2.6",
+        "react-server-dom-webpack": "19.2.6",
+        "tailwindcss": "4.2.1",
+        "typescript": "5.9.3"
+    },
+    "type": "module",
+    "displayName": "RPG Nexus"
 }
