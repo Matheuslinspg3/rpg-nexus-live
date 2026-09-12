@@ -1348,7 +1348,7 @@ function NimbleClassPanel({ characterId, layout, fields, onChange, onFocus, edit
   return (
     <div className="nimble-sheet" style={style} aria-label={`Ficha ${layout.name}`}>
       <aside className="nimble-rail">
-        <div className="nimble-portrait-frame">
+        <div className="nimble-portrait-frame" style={{ position: 'relative' }}>
           <div className={`nimble-portrait ${fields.portraitUrl ? "has-image" : ""}`}>
             <PortraitUploader currentUrl={fields.portraitUrl} fallbackName={portraitName} onUpload={onUploadPortrait} onUrlChange={(url) => onChange("portraitUrl", url)} />
           </div>
@@ -1450,7 +1450,7 @@ function ShadowmancerSheet({ characterId, fallbackName, layout, fields, onChange
   return (
     <div className="shadowmancer-sheet" aria-label="Ficha Shadowmancer">
       <aside className="shadow-rail">
-        <div className="shadow-portrait-frame">
+        <div className="shadow-portrait-frame" style={{ position: 'relative' }}>
           <div className={`shadow-portrait ${fields.portraitUrl ? "has-image" : ""}`}>
             <PortraitUploader currentUrl={fields.portraitUrl} fallbackName={portraitName} onUpload={onUploadPortrait} onUrlChange={(url) => onChange("portraitUrl", url)} />
           </div>
