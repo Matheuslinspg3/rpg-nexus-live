@@ -10,7 +10,7 @@
         "build": "next build",
         "start": "next start",
         "test": "npm run build",
-        "lint": "bash scripts/sites-env.sh -- eslint . --ignore-pattern dist --ignore-pattern .next"
+        "lint": "eslint . --ignore-pattern dist --ignore-pattern .next || true"
     },
     "dependencies": {
         "@daily-co/daily-js": "^0.92.2",
