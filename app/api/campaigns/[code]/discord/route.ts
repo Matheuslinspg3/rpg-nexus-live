@@ -10,7 +10,7 @@ const keys = ["guildId", "audiovisualChannelId", "audiovisualVoiceChannelId", "r
 function parse(value: unknown): DiscordIntegration {
   const source = value && typeof value === "object" ? value as Record<string, unknown> : {};
   const pick = (key: typeof keys[number]) => typeof source[key] === "string" ? source[key].trim().slice(0, 32) : "";
-  return { enabled: source.enabled === true, guildId: pick("guildId"), audiovisualChannelId: pick("audiovisualChannelId"), audiovisualVoiceChannelId: pick("audiovisualVoiceChannelId"), diceChannelId: pick("diceChannelId"), musicChannelId: pick("musicChannelId") };
+  return { enabled: source.enabled === true, guildId: pick("guildId"), audiovisualChannelId: pick("audiovisualChannelId"), audiovisualVoiceChannelId: pick("audiovisualVoiceChannelId"), recordingTextChannelId: pick("recordingTextChannelId"), diceChannelId: pick("diceChannelId"), musicChannelId: pick("musicChannelId") };
 }
 
 export async function GET(_: Request, context: Context) {
